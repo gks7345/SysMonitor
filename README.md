@@ -24,8 +24,9 @@ SysMonitor는 Windows 작업관리자에서 영감을 받은 C++ 포트폴리오
   * 실행할 때마다 성능 비교
 ## 아키텍쳐
 <img width="703.3233" height="480" alt="image" src="https://github.com/user-attachments/assets/092d4e2b-efd4-4751-99ec-4f1c9d7ed0da" />
-##설계
-###/collectors
+
+## 설계
+### /collectors
 SystemCollector.cpp - 전체 CPU, 메모리, 디스크, 네트워크 검사 후 DataStore에 저장
 - saveSystemScan() -> DataStroe에 저장
 - getCpuUsage()
@@ -52,7 +53,7 @@ Handel 계속 열어둠
 - getConnections() -> 연결 IP
 - getOpenFiles() -> 접근 파일
 - 
-  ###/tracker
+  ### /tracker
   ProgramTracker.cpp - 타겟 프로세스 히스토리 저장, 추세 분석, 이상 감지, 세션 리포트
   - cpuHitory, memHistory, diskHistory, networkHistory
   - isLeaking() -> 추세분석
@@ -60,12 +61,12 @@ Handel 계속 열어둠
   - reportSesion -> SessionReporter 호출
   SessionReporter.cpp - 세션 리포트 json으로 저장
 
-  ###/datastore
+  ### /datastore
   DataStore.cpp - SystemHistory, ProcessHistory, targets 소유
   - pinTarget()
   - unpinTarget()
   - hasSysProcSpike() -> System, Process 이상 감지
 
-  ###/alert
+  ### /alert
   AlertEngine.cpp
   Notifier.cpp
