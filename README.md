@@ -71,3 +71,10 @@ Handel 계속 열어둠
   ### /alert
   AlertEngine.cpp
   Notifier.cpp
+
+ ### 사용 라이브러리
+ 로깅 - spdlog
+ 세션 리포트 - nlohmann/json
+ 알림(Toast) - WinToastLib
+ UI & Graph - Dear ImGui, ImPlot
+ 
