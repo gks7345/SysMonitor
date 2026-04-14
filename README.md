@@ -23,7 +23,8 @@ SysMonitor는 Windows 작업관리자에서 영감을 받은 C++ 포트폴리오
   * 메모리 증가 추세 감지
   * 실행할 때마다 성능 비교
 ## 아키텍쳐
-<img width="703.3233" height="480" alt="image" src="https://github.com/user-attachments/assets/092d4e2b-efd4-4751-99ec-4f1c9d7ed0da" />
+<img width="2564" height="1128" alt="image" src="https://github.com/user-attachments/assets/4e316932-74fb-4b7b-a6db-c03f6c648269" />
+
 
 ## 설계
 ### /collectors
