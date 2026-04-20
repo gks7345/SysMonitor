@@ -1,0 +1,19 @@
+# build
+build/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# IDE
+.vscode/
+.vs/
+.idea/
+
+# binaries
+*.exe
+*.dll
+*.o
+*.obj
