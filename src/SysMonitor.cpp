@@ -35,8 +35,8 @@ void LogSystemSample(nlohmann::json& j) {
         j["MEM"].value("UsedMB",0.0)/1024.0,
         j["MEM"].value("TotalMB",0.0)/1024.0,
         j["MEM"].value("UsedPercent", 0.0),
-        j["MEM"].value("committedGB",0.0)/1024.0,
-        j["MEM"].value("commitLimitGB",0.0)/1024.0,
+        j["MEM"].value("committedGB",0.0),
+        j["MEM"].value("commitLimitGB",0.0),
         j["MEM"].value("commitPercent",0.0),
 
         j["NET"].value("netSentKB",0.0),
