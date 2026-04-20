@@ -19,7 +19,12 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/gabime/spdlog
 	GIT_TAG v1.x
 )
+FetchContent_Declare(
+	json
+	GIT_REPOSITORY https://github.com/nlohmann/json
+	GIT_TAG v3.12.0
+)
 
-FetchContent_MakeAvailable(spdlog)
+FetchContent_MakeAvailable(spdlog json)
 # 하위 프로젝트를 포함합니다.
 add_subdirectory ("src")

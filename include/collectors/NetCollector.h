@@ -1,7 +1,6 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
-#include <pdhmsg.h>
 #include <iostream>
 
 class NetCollector {

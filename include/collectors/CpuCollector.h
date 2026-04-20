@@ -1,7 +1,6 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
-#include <pdhmsg.h>
 #include <iostream>
 
 class CpuCollector {
@@ -17,4 +16,7 @@ public:
 	void init(PDH_HQUERY& query);
 	float getTotalUsage() const;
 	float getCpuFredGHz() const;
+	float getCpuQueueLength() const;
+	float getCpuUser() const;
+	float getCpuKernel() const;
 };

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <chrono>
+#include <nlohmann/json.hpp>
 #include "collectors/SystemCollector.h"
 
 

@@ -15,14 +15,14 @@ void DiskCollector::init(PDH_HQUERY& query) {
 	);
 }
 
-float DiskCollector::getReadBytes() const {
+float DiskCollector::getReadKB() const {
 	PDH_FMT_COUNTERVALUE val;
 	PdhGetFormattedCounterValue(readCounter, PDH_FMT_DOUBLE, NULL, &val);
 	double readDisk = val.doubleValue / 1024.0;
 	return (float)readDisk;
 }
 
-float DiskCollector::getWriteBytes() const {
+float DiskCollector::getWriteKB() const {
 	PDH_FMT_COUNTERVALUE val;
 	PdhGetFormattedCounterValue(writeCounter, PDH_FMT_DOUBLE, NULL, &val);
 	double writeDisk = val.doubleValue / 1024.0;

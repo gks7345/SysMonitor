@@ -1,7 +1,6 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
-#include <pdhmsg.h>
 #include <iostream>
 
 class MemCollector {
@@ -14,7 +13,7 @@ private:
 
 	float	memTotalMB;
 	float	memUsedPercent;
-	float	memUsedMB;
+	float	memUsedMB ;
 	float	memAvailMB;
 	
 public:
@@ -25,4 +24,10 @@ public:
 	float getMemUsedMB();
 	float getMemUsagedPercent();
 	float getMemTotalMB();
+
+	float getCommitMemPercent();
+	float getCommittedMemGB();
+	float getCommitLimitGB();
+
+	void collectMemInfo();
 };

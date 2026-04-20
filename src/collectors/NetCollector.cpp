@@ -3,12 +3,12 @@
 void NetCollector::init(PDH_HQUERY& query) {
 	PdhAddEnglishCounter(
 		query,
-		"\\Network Interface(*)\\Bytes Sent/sec",
+		"\\Network Interface(_Total)\\Bytes Sent/sec",
 		0,
 		&sentCounter);
 	PdhAddEnglishCounter(
 		query,
-		"\\Network Interface(*)\\Bytes Received/sec",
+		"\\Network Interface(_Total)\\Bytes Received/sec",
 		0,
 		&recvCounter);
 }

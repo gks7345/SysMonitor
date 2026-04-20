@@ -5,7 +5,7 @@
 # 이 프로젝트의 실행 파일에 소스를 추가합니다.
 add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "collectors/CpuCollector.cpp" "collectors/MemCollector.cpp" "collectors/NetCollector.cpp" "collectors/DiskCollector.cpp")
 target_include_directories(SysMonitor PRIVATE "../include")
-target_link_libraries(SysMonitor PRIVATE spdlog::spdlog)
+target_link_libraries(SysMonitor PRIVATE spdlog::spdlog nlohmann_json::nlohmann_json)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET SysMonitor PROPERTY CXX_STANDARD 20)

@@ -6,6 +6,9 @@ SystemCollector::SystemCollector() {
 	PdhOpenQuery(NULL, 0, &queryMiddle);
 	PdhOpenQuery(NULL, 0, &querySlow);
 
+	ULONGLONG bootTime = GetTickCount64();
+	DWORD delay = 1000 - (bootTime % 1000);
+	Sleep(delay);
 	
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
@@ -26,25 +29,42 @@ SystemCollector::~SystemCollector() {
 }
 void SystemCollector::collectMiddle() {
 	PdhCollectQueryData(queryMiddle);
+	mem.collectMemInfo();
 }
 void SystemCollector::collectSlow() {
 	PdhCollectQueryData(querySlow);
 }
-SystemSample SystemCollector::snapshot() {
-	return {
-		.cpuTotal = cpu.getTotalUsage(),
-		.cpuFreqGHz = cpu.getCpuFredGHz(),
-
-		.memTotalMB = mem.getMemTotalMB(),
-		.memAvailMB = mem.getAvailMemMB(),
-		.memUsedMB = mem.getMemUsedMB(),
-		.memUsedPercent = mem.getMemUsagedPercent(),
-
-		.netSentKB = net.getSentKB(),
-		.netRecvKB = net.getRecvKB(),
-
-		.diskReadKB = disk.getReadBytes(),
-		.diskWriteKB = disk.getWriteBytes()
+nlohmann::json SystemCollector::snapshot() {
+	nlohmann::json snapshot;
+	snapshot["Timestamp"] = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::system_clock::now().time_since_epoch()
+	).count();
+	snapshot["CPU"] = {
+		{"Total", cpu.getTotalUsage()},
+		{"FredGHZ", cpu.getCpuFredGHz()},
+		{"QueueLength", cpu.getCpuQueueLength()},
+		{"User", cpu.getCpuUser()},
+		{"Kernel", cpu.getCpuKernel()}
 	};
+	snapshot["MEM"] = {
+		{"TotalMB", mem.getMemTotalMB()},
+		{"AvailMB", mem.getAvailMemMB()},
+		{"UsedPercent", mem.getMemUsagedPercent()},
+		{"UsedMB", mem.getMemUsedMB()},
+
+		{"commitPercent", mem.getCommitMemPercent()},
+		{"committedGB", mem.getCommittedMemGB()},
+		{"commitLimitGB", mem.getCommitLimitGB()}
+	};
+	snapshot["NET"] = {
+		{"netSentKB", net.getSentKB()},
+		{"netRecvKB", net.getRecvKB()}
+	};
+	snapshot["DISK"] = {
+		{"diskReadKB", disk.getReadKB()},
+		{"diskWriteKB", disk.getWriteKB()}
+	};
+
+	return snapshot;
 }
 

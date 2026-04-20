@@ -22,26 +22,28 @@ std::string TimeToString(const std::chrono::system_clock::time_point& tp)
     return oss.str();
 }
 
-void LogSystemSample(const SystemSample& s) {
+void LogSystemSample(nlohmann::json& j) {
     spdlog::info(
-        "[{}] CPU: {:.1f}% ({} GHz) | "
-        "MEM: {:.2f}/{:.0f} GB ({:.1f}%) | "
+        "CPU: {:.1f}% ({:.2f} GHz) | "
+        "MEM: {:.2f}/{:.0f} GB ({:.1f}%) Committed {:.2f}/{:.0f} GB ({:.1f}%)| "
         "NET: Recv {:.2f} KB/s Sent {:.2f} KB/s | "
         "DISK: R {:.2f} KB/s | W {:.2f} KB/s",
-        TimeToString(s.timestamp),
 
-        s.cpuTotal,
-        s.cpuFreqGHz,
+        j["CPU"].value("Total",0.0),
+        j["CPU"].value("FredGHZ",0.0),
 
-        s.memUsedMB/1024.0,
-        s.memTotalMB/1024.0,
-        s.memUsedPercent,
+        j["MEM"].value("UsedMB",0.0)/1024.0,
+        j["MEM"].value("TotalMB",0.0)/1024.0,
+        j["MEM"].value("UsedPercent", 0.0),
+        j["MEM"].value("committedGB",0.0)/1024.0,
+        j["MEM"].value("commitLimitGB",0.0)/1024.0,
+        j["MEM"].value("commitPercent",0.0),
 
-        s.netRecvKB,
-        s.netSentKB,
+        j["NET"].value("netSentKB",0.0),
+        j["NET"].value("netRecvKB",0.0),
 
-        s.diskReadKB,
-        s.diskWriteKB
+        j["DISK"].value("diskReadKB",0.0),
+        j["DISK"].value("diskWriteKB",0.0)
 
     );
 }
@@ -56,7 +58,7 @@ int main()
         if (tick % 4 == 0) {
             sc.collectSlow();
         }
-        SystemSample sample = sc.snapshot();
+        nlohmann::json sample = sc.snapshot();
         LogSystemSample(sample);
         tick++;
         std::this_thread::sleep_for(1000ms);
