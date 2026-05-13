@@ -86,6 +86,7 @@ Process Collector
    * CPU
    * 전용 메모리 크기(Private Mem)
    * 실제 물리 메모리 크기 (Working Set)
+
 Target Program Collector
  - 최대 5개의 특정 프로세스 정보 수집
    * PID
@@ -95,11 +96,13 @@ Target Program Collector
    * 실제 물리 메모리 크기
    * 핸들 정보
    * 네트워크 (트래픽 확인 0.5초)
+
 Data Store
   - 링 버퍼 형식으로 프로그램 내부에 저장 -> Session Reporter 이전의 임시 저장소
    * 크기는 8MB 블록 저장
    * 시스템, 일반 프로세스는 상위 10개, 타겟 프로그램의 경우 꺼져 있는것까지 최대 5개
    * 삭제된 정보는 Session Reporter를 통해 조회
+
 Session Reporter
   - 시계열(Time Stamp)로 매트릭스 별로 저장 > DuckDB
    * 1분 주기로 저장, Session Reporter에 저장된 Data Store 블록은 삭제
@@ -129,4 +132,4 @@ Session Reporter
 
  
 
-d
+
