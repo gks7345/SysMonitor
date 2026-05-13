@@ -108,12 +108,12 @@ Session Reporter
    * 1분 주기로 저장, Session Reporter에 저장된 Data Store 블록은 삭제
    * 매트릭스
      1. System(Time Stamp + 메트리스 이름)
-      * CPU Total
-     >> Processor Queue Length 병목 판단용
-            >> Kernel Time 이상 탐지용
-            * User Time   이상 탐지용
-            * 디스크 쓰기
-            * 디스크 읽기
+        * CPU Total
+        * Processor Queue Length 병목 판단용
+        * Kernel Time 이상 탐지용
+        * User Time   이상 탐지용
+        * 디스크 쓰기
+        * 디스크 읽기
            --- 커밋된 메모리
            --- 사용중인 메모리
            --- 네트워크 읽기
