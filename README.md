@@ -81,11 +81,11 @@ SysMonitor는 Windows 작업관리자에서 영감을 받은 C++ 포트폴리오
 ##
  Process Collector
  - 상위 10개의 프로세스 정보 수집
-   > PID
-   > 프로세스 이름
-   > CPU
-   > 전용 메모리 크기(Private Mem)
-   > 실제 물리 메모리 크기 (Working Set)
+   * PID
+   * 프로세스 이름
+   * CPU
+   * 전용 메모리 크기(Private Mem)
+   * 실제 물리 메모리 크기 (Working Set)
  Target Program Collector
  - 최대 5개의 특정 프로세스 정보 수집
    > PID
