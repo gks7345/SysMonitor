@@ -114,20 +114,20 @@ Session Reporter
         * User Time   이상 탐지용
         * 디스크 쓰기
         * 디스크 읽기
-           --- 커밋된 메모리
-           --- 사용중인 메모리
-           --- 네트워크 읽기
-           --- 네트워크 쓰기
-         -- Process(Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
-           --- CPU
-           --- 전용 메모리 크기(Private Memorry)
-           --- 실제 물리 메모리 크기(Working Set)
-        -- Target Program ( Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
-           --- CPU
-           --- 전용 메모리 크기(Private Memorry)
-           --- 실제 물리 메모리 크기(Working Set)
-           --- Network
-           --- 핸들
+        * 커밋된 메모리
+        * 사용중인 메모리
+        * 네트워크 읽기
+        * 네트워크 쓰기
+     2. Process(Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+        * CPU
+        * 전용 메모리 크기(Private Memorry)
+        * 실제 물리 메모리 크기(Working Set)
+     3. Target Program ( Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+        * CPU
+        * 전용 메모리 크기(Private Memorry)
+        * 실제 물리 메모리 크기(Working Set)
+        * Network
+        * 핸들
 
 
  
