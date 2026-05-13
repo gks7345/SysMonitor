@@ -107,7 +107,7 @@ Session Reporter
  - 시계열(Time Stamp)로 매트릭스 별로 저장 > DuckDB
    * 1분 주기로 저장, Session Reporter에 저장된 Data Store 블록은 삭제
    * 매트릭스
-        > System(Time Stamp + 메트리스 이름)
+          System(Time Stamp + 메트리스 이름)
            - CPU Total
            - Processor Queue Length 병목 판단용
            - Kernel Time 이상 탐지용
@@ -118,11 +118,11 @@ Session Reporter
            - 사용중인 메모리
            - 네트워크 읽기
            - 네트워크 쓰기
-        > Process(Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+         Process(Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
            - CPU
            - 전용 메모리 크기(Private Memorry)
            - 실제 물리 메모리 크기(Working Set)
-       > Target Program ( Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+        Target Program ( Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
            - CPU
            - 전용 메모리 크기(Private Memorry)
            - 실제 물리 메모리 크기(Working Set)
