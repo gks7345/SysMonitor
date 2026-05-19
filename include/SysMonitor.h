@@ -8,5 +8,6 @@
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include "collectors/SystemCollector.h"
+#include "collectors/ProcessCollector.h"
 
 

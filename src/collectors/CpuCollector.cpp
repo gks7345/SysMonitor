@@ -1,38 +1,38 @@
 #include "collectors/CpuCollector.h"
 
 void CpuCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounter(	//전체 사용률
+	PdhAddEnglishCounterW(	//전체 사용률
 		query,
-		"\\Processor Information(_Total)\\% Processor Utility",
+		L"\\Processor Information(_Total)\\% Processor Utility",
 		0,
 		&cpuTotal
 	);
-	PdhAddEnglishCounter(	//현재 클럭 속도
+	PdhAddEnglishCounterW(	//현재 클럭 속도
 		query,
-		"\\Processor Information(_Total)\\Actual Frequency",
+		L"\\Processor Information(_Total)\\Actual Frequency",
 		0,
 		&cpuFredMHz
 	);
 
-	PdhAddEnglishCounter(	// Processor Queue Length 병목 판단용 코어 수 이상 -> 병목 가능
+	PdhAddEnglishCounterW(	// Processor Queue Length 병목 판단용 코어 수 이상 -> 병목 가능
 		query,
-		"\\System\\Processor Queue Length",
+		L"\\System\\Processor Queue Length",
 		0,
 		&cpuQueueLength
 	);
 	//CPU 사용 성격 분석
 	//User 높음 -> 프로세스 원인
 	//Kernel 높음 -> OS/드라이버 / I/O 문제
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\Processor Information(_Total)\\% User Time",
+		L"\\Processor Information(_Total)\\% User Time",
 		0,
 		&cpuUser
 	);
 	//Kernel
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\Processor Information(_Total)\\% Privileged  Time",
+		L"\\Processor Information(_Total)\\% Privileged  Time",
 		0,
 		&cpuKernel
 	);

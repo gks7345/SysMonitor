@@ -10,27 +10,27 @@ MemCollector::MemCollector() {
 //Available Memory↓ commit ↑ 위험
 //Available 매우 작음 Commit % 90%+ 위험
 void MemCollector::init(PDH_HQUERY& qurey) {
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		qurey,
-		"\\Memory\\Available MBytes",
+		L"\\Memory\\Available MBytes",
 		0,
 		&availableMem
 	);
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		qurey,
-		"\\Memory\\% Committed Bytes In Use",
+		L"\\Memory\\% Committed Bytes In Use",
 		0,
 		&commitMemPercent
 	);
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		qurey,
-		"\\Memory\\Committed Bytes",
+		L"\\Memory\\Committed Bytes",
 		0,
 		&committedMem
 	);
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		qurey,
-		"\\Memory\\Commit Limit",
+		L"\\Memory\\Commit Limit",
 		0,
 		&commitLimit
 	);

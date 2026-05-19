@@ -1,15 +1,15 @@
 #include "collectors/DiskCollector.h"
 
 void DiskCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\PhysicalDisk(_Total)\\Disk Read Bytes/sec",
+		L"\\PhysicalDisk(_Total)\\Disk Read Bytes/sec",
 		0,
 		&readCounter
 	);
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\PhysicalDisk(_Total)\\Disk Write Bytes/sec",
+		L"\\PhysicalDisk(_Total)\\Disk Write Bytes/sec",
 		0,
 		&writeCounter
 	);
