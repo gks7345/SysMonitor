@@ -3,7 +3,9 @@
 #
 
 # 이 프로젝트의 실행 파일에 소스를 추가합니다.
-add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "collectors/CpuCollector.cpp" "collectors/MemCollector.cpp" "collectors/NetCollector.cpp" "collectors/DiskCollector.cpp")
+add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "collectors/CpuCollector.cpp" "collectors/MemCollector.cpp" "collectors/NetCollector.cpp" "collectors/DiskCollector.cpp"
+							 "collectors/ProcList.cpp" "collectors/ProcessCollector.cpp" 
+							 "datastore/DataStore.cpp")
 target_include_directories(SysMonitor PRIVATE "../include")
 target_link_libraries(SysMonitor PRIVATE spdlog::spdlog nlohmann_json::nlohmann_json)
 

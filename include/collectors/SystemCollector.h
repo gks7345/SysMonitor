@@ -25,5 +25,7 @@ public:
 	void saveSystemScan();
 	void collectMiddle();
 	void collectSlow();
+	nlohmann::json snapshotSlow();
+	nlohmann::json snapshotMiddle();
 	nlohmann::json snapshot();
 };

@@ -1,14 +1,14 @@
 #include "collectors/NetCollector.h"
 
 void NetCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\Network Interface(_Total)\\Bytes Sent/sec",
+		L"\\Network Interface(_Total)\\Bytes Sent/sec",
 		0,
 		&sentCounter);
-	PdhAddEnglishCounter(
+	PdhAddEnglishCounterW(
 		query,
-		"\\Network Interface(_Total)\\Bytes Received/sec",
+		L"\\Network Interface(_Total)\\Bytes Received/sec",
 		0,
 		&recvCounter);
 }
