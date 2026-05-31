@@ -7,8 +7,8 @@ MemCollector::MemCollector() {
 	memTotalMB = totalRAM / (1024 * 1024);
 }
 
-//Available Memory¡é commit ¡è À§Çè
-//Available ¸Å¿ì ÀÛÀ½ Commit % 90%+ À§Çè
+//Available Memoryâ†“ commit â†‘ ìœ„í—˜
+//Available ë§¤ìš° ì‘ìŒ Commit % 90%+ ìœ„í—˜
 void MemCollector::init(PDH_HQUERY& qurey) {
 	PdhAddEnglishCounterW(
 		qurey,
@@ -57,13 +57,13 @@ double MemCollector::getCommittedMemGB() const {
 	PDH_FMT_COUNTERVALUE val;
 	PdhGetFormattedCounterValue(committedMem, PDH_FMT_DOUBLE, NULL, &val);
 	double committedMemMB = val.doubleValue / (1024.0 * 1024.0);
-	return committedMemMB/1024.0;
+	return committedMemMB / 1024.0;
 }
 double MemCollector::getCommitLimitGB() const {
 	PDH_FMT_COUNTERVALUE val;
 	PdhGetFormattedCounterValue(commitLimit, PDH_FMT_DOUBLE, NULL, &val);
-	double commitLimitMB = val.doubleValue /(1024.0*1024.0);
-	return commitLimitMB/1024.0;
+	double commitLimitMB = val.doubleValue / (1024.0 * 1024.0);
+	return commitLimitMB / 1024.0;
 }
 
 

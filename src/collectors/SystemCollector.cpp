@@ -6,23 +6,23 @@ SystemCollector::SystemCollector() : queryMiddle(nullptr), querySlow(nullptr)
 {
 	PDH_STATUS statusMiddle = PdhOpenQuery(nullptr, 0, &queryMiddle);
 	if (statusMiddle != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(middle) ½ÇÆÐ 0x{:X}", statusMiddle);
+		spdlog::error("ProcessCollector: PdhOpenQuery(middle) ì‹¤íŒ¨ 0x{:X}", statusMiddle);
 	}
 	PDH_STATUS statusSlow = PdhOpenQuery(nullptr, 0, &querySlow);
 	if (statusSlow != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(slow) ½ÇÆÐ 0x{:X}", statusSlow);
+		spdlog::error("ProcessCollector: PdhOpenQuery(slow) ì‹¤íŒ¨ 0x{:X}", statusSlow);
 	}
 
-	
+
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
-	
+
 	cpu.init(queryMiddle);
 	mem.init(queryMiddle);
 	net.init(queryMiddle);
 	disk.init(querySlow);
 
-	//ÃÊ±â ¼öÁý
+	//ì´ˆê¸° ìˆ˜ì§‘
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
 	Sleep(1000);
@@ -66,7 +66,7 @@ void SystemCollector::printToConsole() const {
 SnapShotSysData SystemCollector::makeSnapShot() {
 	SnapShotSysData snapShot;
 	snapShot.timestamp = std::chrono::system_clock::now();
-	
+
 	const auto& cpu_ = cpu;
 	const auto& mem_ = mem;
 	const auto& disk_ = disk;
