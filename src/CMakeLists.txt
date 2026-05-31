@@ -8,6 +8,11 @@ add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "co
 							 "datastore/DataStore.cpp"  )
 target_include_directories(SysMonitor PRIVATE "../include")
 
+target_compile_definitions(SysMonitor PRIVATE
+    _WINSOCKAPI_        # winsock.h 자동 include 차단
+    WIN32_LEAN_AND_MEAN # windows.h 경량화
+)
+
 if(MSVC)
     # 매니페스트 직접 링크
     target_link_options(SysMonitor PRIVATE
@@ -28,13 +33,10 @@ target_link_libraries(SysMonitor PRIVATE
 add_custom_command(TARGET SysMonitor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:duckdb>
-        $<TARGET_FILE_DIR:SysMonitor>
+        $<TARGET_FILE_DIR:SysMonitor>/duckdb.dll
 )
 
-target_compile_definitions(SysMonitor PRIVATE
-    _WINSOCKAPI_        # winsock.h 자동 include 차단
-    WIN32_LEAN_AND_MEAN # windows.h 경량화
-)
+
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET SysMonitor PROPERTY CXX_STANDARD 20)

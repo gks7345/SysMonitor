@@ -7,13 +7,13 @@
 #include "collectors/MemCollector.h"
 #include "collectors/DiskCollector.h"
 #include "collectors/NetCollector.h"
-#include "models/SnapShotData.h"
+#include "models/SnapshotData.h"
 
 class SystemCollector {
 private:
-	// 1√  ∞£∞›
+	// 1Ï¥à Í∞ÑÍ≤©
 	PDH_HQUERY queryMiddle;
-	//2√  ∞£∞›
+	//2Ï¥à Í∞ÑÍ≤©
 	PDH_HQUERY querySlow;
 
 	CpuCollector cpu;
@@ -25,10 +25,9 @@ private:
 public:
 	SystemCollector();
 	~SystemCollector();
-	void saveSystemScan();
 	void collectMiddle();
 	void collectSlow();
 
-	SnapShotSysData makeSnapShot();
+	SnapshotSysData makeSnapshot();
 	void printToConsole() const;
 };

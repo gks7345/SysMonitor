@@ -9,37 +9,33 @@ private:
     size_t cap;
     size_t frontIdx;
     size_t backIdx;
-    Q* data;
+    std::vector<Q> data;
 
 public:
     RingBuffer(size_t capacity)
         : sz(0), cap(capacity)
-        , frontIdx(0), backIdx(0) {
-        data = new Q[capacity];
-    }
-
-    ~RingBuffer() {
-        delete[] data;
+        , frontIdx(0), backIdx(0)
+        , data(capacity) {
     }
 
     void enQueue(const Q* q, size_t block) {
-        if (block == 0) return;
-
-        size_t ableCapacity = cap - sz;
-        if (block > ableCapacity)
-            throw std::overflow_error("RingBuffer: capacity 초과");
-
         for (size_t i = 0; i < block; i++) {
-            data[backIdx] = q[i];
-            backIdx++;
-            if (backIdx >= cap)
-                backIdx = 0;
+            enQueue(q[i]);
         }
-        sz += block;
     }
 
     void enQueue(const Q& q) {
-        enQueue(&q, 1);
+        data[backIdx] = q;
+        backIdx = (backIdx + 1) % cap;
+
+        if (sz >= cap) {
+            //가득 찼으면 front도 같이 이동
+            frontIdx = (frontIdx + 1) % cap;
+            // sz는 그대로 두기
+            return;
+        }
+
+        sz++;
     }
 
     std::vector<Q> deQueue() {

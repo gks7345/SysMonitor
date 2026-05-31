@@ -1,20 +1,22 @@
 #pragma once
 #include <iostream>
+#include <string>
+#include <vector>
 #include <chrono>
 
 // ---------------------------------------------------------------------------
 // 시스템
 // ---------------------------------------------------------------------------
-struct SnapShotSysCpu {
+struct SnapshotSysCpu {
 	double cpuTotal = 0.0;
-	double cpuFredMHz = 0.0;
+	double cpuFredGHz = 0.0;
 
 	double cpuUser = 0.0;
 	double cpuKernel = 0.0;
 	double cpuQueueLength = 0.0;
 };
 
-struct SnapShotSysMem {
+struct SnapshotSysMem {
 	double memTotalMB = 0.0;
 	double memUsagePercent = 0.0;
 	double memUsedMB = 0.0;
@@ -25,30 +27,30 @@ struct SnapShotSysMem {
 	double commitLimitGB = 0.0;
 };
 
-struct SnapShotSysDisk {
+struct SnapshotSysDisk {
 	std::chrono::system_clock::time_point lastTime;
 	double diskReadKBs = 0.0;
 	double diskWriteKBs = 0.0;
 };
 
-struct SnapShotSysNet {
+struct SnapshotSysNet {
 	double netSentKbps = 0.0;
 	double netRecvKbps = 0.0;
 };
 
-struct SnapShotSysData {
+struct SnapshotSysData {
 	std::chrono::system_clock::time_point	timestamp;
 
-	SnapShotSysCpu cpu;
-	SnapShotSysMem mem;
-	SnapShotSysDisk disk;
-	SnapShotSysNet net;
+	SnapshotSysCpu cpu;
+	SnapshotSysMem mem;
+	SnapshotSysDisk disk;
+	SnapshotSysNet net;
 };
 
 // ---------------------------------------------------------------------------
 // 프로세스
 // ---------------------------------------------------------------------------
-struct SnapShotProc {
+struct SnapshotProc {
 	int			procID = 0;
 	std::string procName;
 
@@ -64,9 +66,9 @@ struct SnapShotProc {
 	double		procNetRecvMbps = 0.0;
 };
 
-struct SnapShotProcData {
+struct SnapshotProcData {
 	std::chrono::system_clock::time_point	timestamp;
 	int										topN;
 	std::string								sortCriterion;
-	std::vector<SnapShotProc>				procs;
+	std::vector<SnapshotProc>				procs;
 };

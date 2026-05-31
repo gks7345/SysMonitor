@@ -1,7 +1,9 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
+#include <PdhMsg.h>
 #include <iostream>
+#include <spdlog/spdlog.h>
 
 class MemCollector {
 private:
@@ -11,15 +13,17 @@ private:
 	PDH_HCOUNTER commitLimit;
 	MEMORYSTATUSEX mem;
 
-	float	memTotalMB;
-	float	memUsedPercent;
-	float	memUsedMB ;
-	float	memAvailMB;
-	
+	double	memTotalMB = 0.0;
+	double	memUsedPercent = 0.0;
+	double	memUsedMB = 0.0;
+	double	memAvailMB = 0.0;
+
+	static double getPdhDoubleValue(PDH_HCOUNTER counter);
+
 public:
 	MemCollector();
 	void init(PDH_HQUERY& query);
-	
+
 	double getAvailMemMB() const;
 	double getMemUsedMB() const;
 	double getMemUsagedPercent() const;

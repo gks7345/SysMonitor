@@ -17,7 +17,7 @@
 #include <spdlog/spdlog.h>
 
 #include "collectors/ETWNetwork.h"
-#include "models/SnapShotData.h"
+#include "models/SnapshotData.h"
 
 #pragma comment(lib, "pdh.lib")
 #pragma comment(lib, "psapi.lib")
@@ -26,10 +26,10 @@
 // -------------------------------------------------------
 // 정렬 기준
 // -------------------------------------------------------
-enum class SortCriterion { 
-    CPU, 
+enum class SortCriterion {
+    CPU,
     MEMORY,
-    DiSK,
+    DISK,
     NET
 };
 
@@ -96,8 +96,8 @@ private:
     std::vector<std::unique_ptr<ProcList>> procList;
     std::vector<std::unique_ptr<ProcList>> aggregatedProcList;
     int topN;
-    size_t topNSampleSize;
-    SortCriterion currentCritrion;
+    size_t topNSampleSize = 0;
+    SortCriterion currentCriterion;
 
     // 1초 간격
     PDH_HQUERY queryMiddle;
@@ -107,14 +107,14 @@ private:
     // --- PDH COUNTER ---
     PDH_HCOUNTER procIDMiddle;
     PDH_HCOUNTER procName;
-    PDH_HCOUNTER procCpuUsase;
+    PDH_HCOUNTER procCpuUsage;
     PDH_HCOUNTER procPrivateMem;
     PDH_HCOUNTER procMem;
     PDH_HCOUNTER procNet;
     PDH_HCOUNTER procDiskR;
     PDH_HCOUNTER procDiskW;
 
-    ETWNetwork etwNet;   
+    ETWNetwork etwNet;
 
     // ----- 수집 시각 -----
     std::chrono::steady_clock::time_point lastTime;  // ETW NET용
@@ -134,7 +134,7 @@ private:
 
     std::unordered_map<DWORD, ProcEntry> buildProcTree();
 
-    
+
 
 public:
     ProcessCollector(int topN = 10);
@@ -143,10 +143,13 @@ public:
     void collectProc();
     void aggregateToParents();
 
-    void setCritrion(SortCriterion setCritrion);
+    void setCriterion(SortCriterion setCriterion);
     void sortProc();
 
     void printToConsole() const;
 
-    SnapShotProcData makeSnapShot();
+    SnapshotProcData makeSnapshot();
+
+    // ETWNetwork 프로세스 정리 주기용
+    int cleanupTick = 0;
 };

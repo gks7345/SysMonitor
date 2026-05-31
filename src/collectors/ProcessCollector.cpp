@@ -15,15 +15,10 @@ bool ProcessCollector::isSystemProcess(const std::string& name) const {
 }
 
 
-ProcessCollector::ProcessCollector(int topN) : currentCritrion(SortCriterion::CPU), topN(topN) {
+ProcessCollector::ProcessCollector(int topN) : topN(topN), currentCriterion(SortCriterion::CPU) {
 	PDH_STATUS statusMiddle = PdhOpenQuery(NULL, 0, &queryMiddle);
 	if (statusMiddle != ERROR_SUCCESS) {
 		spdlog::error("ProcessCollector: PdhOpenQuery(middle) Error 0x{:X}", statusMiddle);
-	}
-
-	PDH_STATUS statusSlow = PdhOpenQuery(NULL, 0, &querySlow);
-	if (statusSlow != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(slow) Error 0x{:X}", statusSlow);
 	}
 
 	initInfo(queryMiddle);
@@ -31,11 +26,6 @@ ProcessCollector::ProcessCollector(int topN) : currentCritrion(SortCriterion::CP
 
 	//초기 수집
 	PdhCollectQueryData(queryMiddle);
-
-	/*if (!etwDisk.start()) {
-		spdlog::warn("ETWDisk Start Error");
-	}*/
-	//Sleep(3000);
 
 	if (!etwNet.start()) {
 		spdlog::warn("ETWNetwork Start Error");
@@ -47,42 +37,62 @@ ProcessCollector::ProcessCollector(int topN) : currentCritrion(SortCriterion::CP
 }
 ProcessCollector::~ProcessCollector() {
 	PdhCloseQuery(queryMiddle);
-	PdhCloseQuery(querySlow);
 }
 
 void ProcessCollector::initInfo(PDH_HQUERY& query) {
-	PdhAddEnglishCounter(	//PID
+	PDH_STATUS pidStatus = PdhAddEnglishCounter(	//PID
 		queryMiddle,
 		"\\Process(*)\\ID Process",
 		0,
 		&procIDMiddle
 	);
-	PdhAddEnglishCounter(	//CPU 사용량(%)
+	if (pidStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", pidStatus);
+	}
+
+	PDH_STATUS cpuStatus = PdhAddEnglishCounter(	//CPU 사용량(%)
 		queryMiddle,
 		"\\Process(*)\\% Processor Time",
 		0,
-		&procCpuUsase
+		&procCpuUsage
 	);
-	PdhAddEnglishCounter(	//실질적인 MEM
+	if (cpuStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", cpuStatus);
+	}
+
+	PDH_STATUS memStatus = PdhAddEnglishCounter(	//실질적인 MEM
 		queryMiddle,
 		"\\Process(*)\\Working Set - Private",
 		0,
 		&procMem
 	);
+	if (memStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", memStatus);
+	}
 
-	PdhAddEnglishCounter(	//Private MEM 메모리 누수 감지용
+	PDH_STATUS priStatus = PdhAddEnglishCounter(	//Private MEM 메모리 누수 감지용
 		queryMiddle,
 		"\\Process(*)\\Private Bytes",
 		0,
 		&procPrivateMem
 	);
+	if (priStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", priStatus);
+	}
 
 
 	// ----------------------------------------
-	PdhAddEnglishCounter(queryMiddle,
+	PDH_STATUS readStatus = PdhAddEnglishCounter(queryMiddle,
 		"\\Process(*)\\IO Read Bytes/sec", 0, &procDiskR);
-	PdhAddEnglishCounter(queryMiddle,
+	if (readStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", readStatus);
+	}
+
+	PDH_STATUS writeStatus = PdhAddEnglishCounter(queryMiddle,
 		"\\Process(*)\\IO Write Bytes/sec", 0, &procDiskW);
+	if (writeStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter Error 0x{:X}", writeStatus);
+	}
 	// ----------------------------------------
 }
 
@@ -91,15 +101,22 @@ std::vector<char> ProcessCollector::getCountArray(PDH_HCOUNTER hCounter, DWORD& 
 	PdhGetFormattedCounterArray(hCounter, PDH_FMT_DOUBLE, &bufferSize, &count, NULL);
 
 	std::vector<char> buffer;
-	if (*&count > 0) {
-		buffer.resize(bufferSize);
-		PdhGetFormattedCounterArray(
-			hCounter,
-			PDH_FMT_DOUBLE,
-			&bufferSize,
-			&count,
-			reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(buffer.data()));
+	if (count == 0 || bufferSize == 0) return buffer;
+
+	buffer.resize(bufferSize);
+	PDH_STATUS status = PdhGetFormattedCounterArray(
+		hCounter,
+		PDH_FMT_DOUBLE,
+		&bufferSize,
+		&count,
+		reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(buffer.data()));
+
+	if (status != ERROR_SUCCESS) {
+		spdlog::warn("getCountArray Error 0x{:X}", status);
+		count = 0;
+		buffer.clear();
 	}
+
 	return buffer;
 }
 
@@ -108,8 +125,7 @@ std::vector<char> ProcessCollector::getCountArray(PDH_HCOUNTER hCounter, DWORD& 
 // ---------------------------------------------------------------------------
 void ProcessCollector::collectProc() {
 	auto now = std::chrono::steady_clock::now();
-	double elapsedSec = std::chrono::duration <double>(
-		now - lastTime).count();
+	double elapsedSec = std::chrono::duration <double>(now - lastTime).count();
 	lastTime = now;
 	if (elapsedSec <= 0.0) {
 		elapsedSec = 1.0;
@@ -126,38 +142,59 @@ void ProcessCollector::collectProc() {
 	DWORD diskRCounter = 0, diskWCounter = 0;
 
 	std::vector<char> pidbuffer = getCountArray(procIDMiddle, pidItemCount);
-	std::vector<char> cpubuffer = getCountArray(procCpuUsase, cpuItemCount);
-	
+	std::vector<char> cpubuffer = getCountArray(procCpuUsage, cpuItemCount);
+
 	std::vector<char> membuffer = getCountArray(procMem, memItemCount);
 	std::vector<char> primembuffer = getCountArray(procPrivateMem, priMemItemCount);
-	
+
 	std::vector<char> diskRbuffer = getCountArray(procDiskR, diskRCounter);
 	std::vector<char> diskWbuffer = getCountArray(procDiskW, diskWCounter);
 
 
 	auto* pidItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(pidbuffer.data());
 	auto* cpuItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(cpubuffer.data());
-	
+
 	auto* memItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(membuffer.data());
 	auto* privateMemItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(primembuffer.data());
 
 	auto* diskRItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(diskRbuffer.data());
 	auto* diskWItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(diskWbuffer.data());
-	
-	DWORD safeCount = (std::min)({ pidItemCount , cpuItemCount , memItemCount , priMemItemCount, diskRCounter, diskWCounter });
+
+	// 가장 작은 개수로 범위 제한
+	DWORD safeCount = (std::min)({
+		pidItemCount, cpuItemCount, memItemCount,
+		priMemItemCount, diskRCounter, diskWCounter });
 
 	unsigned int cores = std::thread::hardware_concurrency();
 	if (cores == 0) cores = 1;
 
 	for (DWORD i = 0; i < safeCount; ++i) {
-		std::string name = pidItems[i].szName;
+		std::string pidName = pidItems[i].szName;
+		std::string cpuName = cpuItems[i].szName;
+		std::string memName = memItems[i].szName;
+		std::string priName = privateMemItems[i].szName;
+		std::string diskRName = diskRItems[i].szName;
+		std::string diskWName = diskWItems[i].szName;
+
+		if (pidName != cpuName || pidName != memName ||
+			pidName != priName || pidName != diskRName ||
+			pidName != diskWName) {
+			spdlog::warn("collectProc: Index Mismatch [{}] pid={} cpu={} mem={} pri={} disk= R {} / W {}",
+				i, pidName, cpuName, memName, priName, diskRName, diskWName);
+			continue;
+		}
+
 		//if (name == "_Total" || name == "Idle") continue;
-		if (isSystemProcess(name)) continue;
+		if (isSystemProcess(pidName)) continue;
+
+		if (pidItems[i].FmtValue.CStatus != PDH_CSTATUS_VALID_DATA &&
+			pidItems[i].FmtValue.CStatus != PDH_CSTATUS_NEW_DATA)
+			continue;
 
 		auto proc_ = std::make_unique<ProcList>();
 
 		proc_->setProcID(static_cast<uint32_t>(pidItems[i].FmtValue.doubleValue));
-		proc_->setProcName(name);
+		proc_->setProcName(pidName);
 
 		proc_->setProcCpuUsage(cpuItems[i].FmtValue.doubleValue / cores);
 		proc_->setProcMemoryMB(memItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
@@ -167,14 +204,21 @@ void ProcessCollector::collectProc() {
 		proc_->setDiskWriteMBs(diskWItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
 
 		aggregatedProcList.push_back(std::move(proc_));
-		
 	}
 
+	std::unordered_set<DWORD> alivePids;
 	for (auto& proc : aggregatedProcList) {
 		DWORD pid = proc->getProcID();
+		alivePids.insert(pid);
 		NetMbps net = etwNet.getAndReset(pid, elapsedSec);
 		proc->setNetSentMbps(net.sentMbps);
 		proc->setNetRecvMbps(net.recvMbps);
+	}
+
+	// 60초 주기로 현재 죽어있는 프로세스 ETWNetwork에서 정리
+	if (++cleanupTick >= 60) {
+		etwNet.retainOnlyPids(alivePids);
+		cleanupTick = 0;
 	}
 }
 
@@ -192,37 +236,49 @@ void ProcessCollector::aggregateToParents() {
 
 	// 자식 -> 부모 합산
 	std::unordered_set<DWORD> toRemove; // 합산 후 제거할 자식 PID
+	std::unordered_set<DWORD> visited;
 
-	for (const auto& [pid, entry] : tree) {
-		DWORD ppid = entry.ppid;
-		
-		// 부모와 자식 둘 다 aggreatedProcList에 있어야 합산
+	// 리프부터 루트 방향으로 합산
+	std::function<void(DWORD)> dfs = [&](DWORD pid) {
+		if (visited.count(pid)) return;
+		visited.insert(pid);
+
 		auto childIt = pidMap.find(pid);
+		if (childIt == pidMap.end()) return;
+
+		auto treeIt = tree.find(pid);
+		if (treeIt == tree.end()) return;
+
+		DWORD ppid = treeIt->second.ppid;
+		if (ppid == pid) return; // 자기 자신 방지
+
 		auto parentIt = pidMap.find(ppid);
-		if (childIt == pidMap.end()) continue;
-		if (parentIt == pidMap.end()) continue;
+		if (parentIt == pidMap.end()) return;
 
 		ProcList* child = childIt->second;
 		ProcList* parent = parentIt->second;
 
 		// 이름이 같은 경우만 합산
-		if (child->getProcName() != parent->getProcName()) continue;
-		if (pid == ppid) continue;	// 자기 자신 방지
+		if (child->getProcName() != parent->getProcName()) return;
 
-
+		// 자식을 먼저 처리
+		for (const auto& [childPid, childEntry] : tree) {
+			if (childEntry.ppid == pid) // pid의 자식들
+				dfs(childPid);
+		}
 		parent->setProcCpuUsage(parent->getProcCpuUsage() + child->getProcCpuUsage());
-		
 		parent->setProcMemoryMB(parent->getProcMemoryMB() + child->getProcMemoryMB());
 		parent->setProcPrivateMemoryMB(parent->getProcPrivateMemMB() + child->getProcPrivateMemMB());
-
 		parent->setDiskReadMBs(parent->getDiskReadMBs() + child->getDiskReadMBs());
 		parent->setDiskWriteMBs(parent->getDiskWriteMBs() + child->getDiskWriteMBs());
-		
 		parent->setNetRecvMbps(parent->getNetRecvMbps() + child->getNetRecvMbps());
 		parent->setNetSentMbps(parent->getNetSentMbps() + child->getNetSentMbps());
 
 		toRemove.insert(pid);
-	}
+		};
+
+	for (const auto& [pid, entry] : tree)
+		dfs(pid);
 
 	// 자식 제거
 	aggregatedProcList.erase(
@@ -256,52 +312,36 @@ std::unordered_map<DWORD, ProcEntry> ProcessCollector::buildProcTree() {
 }
 
 
-void ProcessCollector::setCritrion(SortCriterion setCritrion) {
-	currentCritrion = setCritrion;
+void ProcessCollector::setCriterion(SortCriterion setCriterion) {
+	currentCriterion = setCriterion;
 }
 
 void ProcessCollector::sortProc() {
 	topNSampleSize = (std::min)(aggregatedProcList.size(), static_cast<size_t>(topN));
 
-	if (currentCritrion == SortCriterion::CPU) {
-		std::nth_element(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize, aggregatedProcList.end(),
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {return a->getProcCpuUsage() > b->getProcCpuUsage(); });
+	auto cmp = [&](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) -> bool {
+		switch (currentCriterion) {
+		case SortCriterion::CPU:
+			return a->getProcCpuUsage() > b->getProcCpuUsage();
+		case SortCriterion::MEMORY:
+			return a->getProcMemoryMB() > b->getProcMemoryMB();
+		case SortCriterion::DISK:
+			return a->getDiskReadMBs() + a->getDiskWriteMBs() > b->getDiskReadMBs() + b->getDiskWriteMBs();
+		case SortCriterion::NET:
+			return a->getNetSentMbps() + a->getNetRecvMbps() > b->getNetSentMbps() + b->getNetRecvMbps();
+		default:
+			return a->getProcCpuUsage() > b->getProcCpuUsage();
+		}
+		};
 
-		std::sort(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize,
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {return a->getProcCpuUsage() > b->getProcCpuUsage(); });
-		return;
-	}
-	
-	if (currentCritrion == SortCriterion::MEMORY) {
-		std::nth_element(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize, aggregatedProcList.end(),
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {return a->getProcMemoryMB() > b->getProcMemoryMB(); });
+	std::nth_element(aggregatedProcList.begin(),
+		aggregatedProcList.begin() + topNSampleSize,
+		aggregatedProcList.end(),
+		cmp);
 
-		std::sort(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize,
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {return a->getProcMemoryMB() > b->getProcMemoryMB(); });
-		return;
-	}
-	
-	if (currentCritrion == SortCriterion::DiSK) {
-		std::nth_element(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize, aggregatedProcList.end(),
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {
-				return a->getDiskReadMBs() + a->getDiskWriteMBs() > b->getDiskReadMBs() + b->getDiskWriteMBs(); });
-
-		std::sort(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize,
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {
-				return a->getDiskReadMBs() + a->getDiskWriteMBs() > b->getDiskReadMBs() + b->getDiskWriteMBs(); });
-		return;
-	}
-
-	if (currentCritrion == SortCriterion::NET) {
-		std::nth_element(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize, aggregatedProcList.end(),
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {
-				return a->getNetSentMbps() + a->getNetRecvMbps() > b->getNetSentMbps() + b->getNetRecvMbps(); });
-
-		std::sort(aggregatedProcList.begin(), aggregatedProcList.begin() + topNSampleSize,
-			[](const std::unique_ptr<ProcList>& a, const std::unique_ptr<ProcList>& b) {
-				return a->getNetSentMbps() + a->getNetRecvMbps() > b->getNetSentMbps() + b->getNetRecvMbps(); });
-		return;
-	}
+	std::sort(aggregatedProcList.begin(),
+		aggregatedProcList.begin() + topNSampleSize,
+		cmp);
 }
 
 ProcList* ProcessCollector::findProcByName(std::string& name, std::vector<std::unique_ptr<ProcList>>& procs) const {
@@ -322,22 +362,22 @@ ProcList* ProcessCollector::findProcByPid(DWORD pid, std::vector<std::unique_ptr
 	return nullptr;
 }
 
-SnapShotProcData ProcessCollector::makeSnapShot() {
+SnapshotProcData ProcessCollector::makeSnapshot() {
 	//size_t count = aggregatedProcList.size();
 	size_t count = (std::min)(topNSampleSize, aggregatedProcList.size());
 
-	SnapShotProcData snapShot;
-	snapShot.timestamp = std::chrono::system_clock::now();
+	SnapshotProcData snapshot;
+	snapshot.timestamp = std::chrono::system_clock::now();
 	std::string sortKey;
 
-	switch (currentCritrion) {
+	switch (currentCriterion) {
 	case SortCriterion::CPU:
 		sortKey = "CPU";
 		break;
 	case SortCriterion::MEMORY:
 		sortKey = "MEMORY";
 		break;
-	case SortCriterion::DiSK:
+	case SortCriterion::DISK:
 		sortKey = "DISK";
 		break;
 	case SortCriterion::NET:
@@ -345,30 +385,26 @@ SnapShotProcData ProcessCollector::makeSnapShot() {
 		break;
 	}
 
-	snapShot.topN = topN;
-	snapShot.sortCriterion = sortKey;
+	snapshot.topN = topN;
+	snapshot.sortCriterion = sortKey;
 
 	for (size_t i = 0; i < count; ++i) {
 		const auto& proc = aggregatedProcList[i];
-		SnapShotProc sp;
+		SnapshotProc sp;
 
 		sp.procID = proc->getProcID();
 		sp.procName = proc->getProcName();
-
 		sp.procCpuUsage = proc->getProcCpuUsage();
-
 		sp.procMemoryMB = proc->getProcMemoryMB();
 		sp.procPrivateMemoryMB = proc->getProcPrivateMemMB();
-
 		sp.procDiskReadMBs = proc->getDiskReadMBs();
 		sp.procDiskWriteMBs = proc->getDiskWriteMBs();
-
 		sp.procNetRecvMbps = proc->getNetRecvMbps();
 		sp.procNetSentMbps = proc->getNetSentMbps();
 
-		snapShot.procs.push_back(sp);
+		snapshot.procs.push_back(sp);
 	}
-	return snapShot;
+	return snapshot;
 }
 
 void ProcessCollector::printToConsole() const {
@@ -376,26 +412,26 @@ void ProcessCollector::printToConsole() const {
 		"CPU", "MEMORY", "DISK", "NET",
 	};
 	printf("\n=== Process Top %d [%s] ===\n",
-		topN, criterionName[static_cast<int>(currentCritrion)]);
+		topN, criterionName[static_cast<int>(currentCriterion)]);
 	printf("%-8s %-22s %7s %9s %9s %9s\n",
-		"PID", "Name", 
+		"PID", "Name",
 		"CPU%",
 		"Mem MB",
 		"Disk MB/s",
 		"NetMbps");
 	printf("%s\n", std::string(80, '-').c_str());
 
-	size_t printCount = (std::min)(aggregatedProcList.size(), static_cast<size_t>(topN));
-	
+	size_t printCount = (std::min)(aggregatedProcList.size(), topNSampleSize);
+
 	for (size_t i = 0; i < printCount; ++i) {
 		const auto& p = aggregatedProcList[i];
 
 		std::string sname = p->getProcName();
 		double disk = p->getDiskReadMBs() + p->getDiskWriteMBs();
 		double net = p->getNetRecvMbps() + p->getNetSentMbps();
-		
+
 		if (sname.size() > 21) sname = sname.substr(0, 18) + "...";
-		
+
 		printf("%-8u %-22s %6.1f%% %8.1fMB %8.2f %8.2f\n",
 			p->getProcID(),
 			sname.c_str(),

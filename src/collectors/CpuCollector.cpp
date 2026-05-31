@@ -1,67 +1,94 @@
 #include "collectors/CpuCollector.h"
 
+
 void CpuCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounterW(	//¿¸√º ªÁøÎ∑¸
+	PDH_STATUS cpuStatus = PdhAddEnglishCounterW(	//Ï†ÑÏ≤¥ ÏÇ¨Ïö©Î•†
 		query,
 		L"\\Processor Information(_Total)\\% Processor Utility",
 		0,
 		&cpuTotal
 	);
-	PdhAddEnglishCounterW(	//«ˆ¿Á ≈¨∑∞ º”µµ
+	if (cpuStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", cpuStatus);
+	}
+
+	PDH_STATUS fredStatus = PdhAddEnglishCounterW(	//ÌòÑÏû¨ ÌÅ¥Îü≠ ÏÜçÎèÑ
 		query,
 		L"\\Processor Information(_Total)\\Actual Frequency",
 		0,
-		&cpuFredMHz
+		&cpuFreqMHz
 	);
+	if (fredStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", fredStatus);
+	}
 
-	PdhAddEnglishCounterW(	// Processor Queue Length ∫¥∏Ò ∆«¥‹øÎ ƒ⁄æÓ ºˆ ¿ÃªÛ -> ∫¥∏Ò ∞°¥…
+	// Processor Queue Length Î≥ëÎ™© ÌåêÎã®Ïö© ÏΩîÏñ¥ Ïàò Ïù¥ÏÉÅ -> Î≥ëÎ™© Í∞ÄÎä•
+	PDH_STATUS queueLengthStatus = PdhAddEnglishCounterW(
 		query,
 		L"\\System\\Processor Queue Length",
 		0,
 		&cpuQueueLength
 	);
-	//CPU ªÁøÎ º∫∞› ∫–ºÆ
-	//User ≥Ù¿Ω -> «¡∑ŒººΩ∫ ø¯¿Œ
-	//Kernel ≥Ù¿Ω -> OS/µÂ∂Û¿Ãπˆ / I/O πÆ¡¶
-	PdhAddEnglishCounterW(
+	if (queueLengthStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", queueLengthStatus);
+	}
+
+	//CPU ÏÇ¨Ïö© ÏÑ±Í≤© Î∂ÑÏÑù
+	//User ÎÜíÏùå -> ÌîÑÎ°úÏÑ∏Ïä§ ÏõêÏù∏
+	//Kernel ÎÜíÏùå -> OS/ÎìúÎùºÏù¥Î≤Ñ / I/O Î¨∏Ï†ú
+	PDH_STATUS userStatus = PdhAddEnglishCounterW(
 		query,
 		L"\\Processor Information(_Total)\\% User Time",
 		0,
 		&cpuUser
 	);
+	if (userStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", userStatus);
+	}
 	//Kernel
-	PdhAddEnglishCounterW(
+	PDH_STATUS kernelStatus = PdhAddEnglishCounterW(
 		query,
 		L"\\Processor Information(_Total)\\% Privileged Time",
 		0,
 		&cpuKernel
 	);
+	if (kernelStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", kernelStatus);
+	}
+}
+
+double CpuCollector::getPdhDoubleValue(PDH_HCOUNTER counter) {
+	PDH_FMT_COUNTERVALUE val = {}; // Ï¥àÍ∏∞Ìôî
+
+	PDH_STATUS status = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, NULL, &val);
+
+	if (status != ERROR_SUCCESS) return 0.0;
+
+	if (val.CStatus != PDH_CSTATUS_VALID_DATA &&
+		val.CStatus != PDH_CSTATUS_NEW_DATA) {
+		return 0.0;
+	}
+
+	return val.doubleValue;
 }
 
 double CpuCollector::getTotalUsage() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &val);
-	return val.doubleValue;
+	return getPdhDoubleValue(cpuTotal);
 }
-double CpuCollector::getCpuFredGHz() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuFredMHz, PDH_FMT_DOUBLE, NULL, &val);
-	double cpuFredGHZ = val.doubleValue / 1000.0;
-	return cpuFredGHZ;
+double CpuCollector::getCpuFreqGHz() const {
+	double val = getPdhDoubleValue(cpuFreqMHz);
+
+	if (val > 1'000'000) return val / 1'000'000'000.0;  // Hz  ‚Üí GHz
+	if (val > 1'000)     return val / 1'000'000.0;      // KHz ‚Üí GHz
+	if (val > 10)        return val / 1'000.0;          // MHz ‚Üí GHz
+	return val;                     // Ïù¥ÎØ∏ GHz
 }
 double CpuCollector::getCpuQueueLength() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuQueueLength, PDH_FMT_DOUBLE, NULL, &val);
-	return val.doubleValue;
+	return getPdhDoubleValue(cpuQueueLength);
 }
 double CpuCollector::getCpuUser() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuUser, PDH_FMT_DOUBLE, NULL, &val);
-	return val.doubleValue;
+	return getPdhDoubleValue(cpuUser);
 }
 double CpuCollector::getCpuKernel() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuKernel, PDH_FMT_DOUBLE, NULL, &val);
-
-	return val.doubleValue;
+	return getPdhDoubleValue(cpuKernel);
 }

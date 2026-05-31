@@ -54,7 +54,6 @@ std::unordered_set<ULONG> ETWNetwork::getLoopbackAddresses() {
     GetAdaptersAddresses(AF_INET,
         GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
         nullptr, nullptr, &bufSize);
-
     if (bufSize == 0) return result;
 
     std::vector<BYTE> buf(bufSize);
@@ -70,8 +69,7 @@ std::unordered_set<ULONG> ETWNetwork::getLoopbackAddresses() {
         if (a->IfType != IF_TYPE_SOFTWARE_LOOPBACK) continue;
 
         for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
-            auto* sa = reinterpret_cast<sockaddr_in*>(
-                ua->Address.lpSockaddr);
+            auto* sa = reinterpret_cast<sockaddr_in*>(ua->Address.lpSockaddr);
             if (sa->sin_family == AF_INET) {
                 result.insert(sa->sin_addr.s_addr);
                 char ipStr[INET_ADDRSTRLEN];
@@ -83,15 +81,100 @@ std::unordered_set<ULONG> ETWNetwork::getLoopbackAddresses() {
     return result;
 }
 
+// -------------------------------------------------------
+// TDH - 이벤트 레이아웃 파싱 (이벤트 ID당 최초 1회)
+// -------------------------------------------------------
+NetEventLayout ETWNetwork::buildLayout(PEVENT_RECORD pEvent) {
+    NetEventLayout layout;
 
+    // 1단계 - 필요한 버퍼 크기 조회
+    ULONG bufSize = 0;
+    ULONG status = TdhGetEventInformation(pEvent, 0, nullptr, nullptr, &bufSize);
+    if (status != ERROR_INSUFFICIENT_BUFFER || bufSize == 0) return layout;
+
+    // 2단계 - 실제 스키마 조회
+    std::vector<BYTE> buf(bufSize);
+    auto* pInfo = reinterpret_cast<TRACE_EVENT_INFO*>(buf.data());
+
+    status = TdhGetEventInformation(pEvent, 0, nullptr, pInfo, &bufSize);
+    if (status != ERROR_SUCCESS) return layout;
+
+    // 3단계 - 필드 이름으로 오프셋 계산
+    ULONG offset = 0;
+    for (ULONG i = 0; i < pInfo->TopLevelPropertyCount; ++i) {
+        auto& prop = pInfo->EventPropertyInfoArray[i];
+        // 필드 이름 (wchar_t*)
+        const wchar_t* fieldName = reinterpret_cast<const wchar_t*>(buf.data() + prop.NameOffset);
+        // 필드 크기 (byte)
+        ULONG fieldSize = prop.length;
+
+        // 찾는 필드: PID, size(bytes), daddr(목적지 IP)
+        if (wcscmp(fieldName, L"PID") == 0)
+        {
+            layout.pidOffset = offset;
+            layout.minLength = (std::max)(layout.minLength, offset + fieldSize);
+            offset += fieldSize;
+            continue;
+        }
+        if (wcscmp(fieldName, L"size") == 0)
+        {
+            layout.bytesOffset = offset;
+            layout.minLength = (std::max)(layout.minLength, offset + fieldSize);
+            offset += fieldSize;
+            continue;
+        }
+
+        if (wcscmp(fieldName, L"daddr") == 0)
+        {
+            layout.daddrOffset = offset;
+            layout.minLength = (std::max)(layout.minLength, offset + fieldSize);
+            offset += fieldSize;
+            continue;
+        }
+    }
+
+    // PID와 bytes 오프셋이 유효해야 사용 가능
+    layout.valid = (layout.pidOffset != ULONG_MAX && layout.bytesOffset != ULONG_MAX);
+
+    if (!layout.valid) {
+        spdlog::warn("ETWNetwork: TDH layout parsing error id={}", pEvent->EventHeader.EventDescriptor.Id);
+    }
+
+    spdlog::info("TDH layout id={} valid={} pid@{} bytes@{} daddr@{}",
+        pEvent->EventHeader.EventDescriptor.Id,
+        layout.valid,
+        layout.pidOffset == ULONG_MAX ? -1 : (int)layout.pidOffset,
+        layout.bytesOffset == ULONG_MAX ? -1 : (int)layout.bytesOffset,
+        layout.daddrOffset == ULONG_MAX ? -1 : (int)layout.daddrOffset);
+
+    return layout;
+}
+
+// -------------------------------------------------------
+// TDH 레이아웃 캐시 조회 (없으면 buildLayout 호출)
+// -------------------------------------------------------
+const NetEventLayout* ETWNetwork::getOrBuildLayout(PEVENT_RECORD pEvent) {
+    USHORT id = pEvent->EventHeader.EventDescriptor.Id;
+
+    {
+        std::lock_guard<std::mutex> lock(layoutMtx);
+        auto it = layoutCache.find(id);
+        if (it != layoutCache.end()) return &it->second;
+    }
+
+    // 캐시 미스 - 스키마 파싱 (최초 1회)
+    NetEventLayout layout = buildLayout(pEvent);
+
+    std::lock_guard<std::mutex> lock(layoutMtx);
+    layoutCache[id] = layout;
+    return &layoutCache[id];
+}
 
 bool ETWNetwork::start() {
     if (running.load())  return true;
 
     // GUID 자동 조회
-    KERNEL_NETWORK_GUID = findProviderGuid(
-        L"Microsoft-Windows-Kernel-Network");
-
+    KERNEL_NETWORK_GUID = findProviderGuid(L"Microsoft-Windows-Kernel-Network");
     if (KERNEL_NETWORK_GUID == GUID{}) {
         spdlog::error("ETWNetwork: Kernel-Network Provider Not Found");
         return false;
@@ -99,7 +182,7 @@ bool ETWNetwork::start() {
 
     // 루프백 주소 자동 수집
     loopbackAddrs = getLoopbackAddresses();
-    spdlog::info("ETWNetwork: loopbackAddrs {} Detect", loopbackAddrs.size());
+    spdlog::info("ETWNetwork: {} loopbackAddrs Detect", loopbackAddrs.size());
 
 
     if (!startSession()) return false;
@@ -126,19 +209,17 @@ void ETWNetwork::stop() {
     spdlog::info("ETWNetwork: STOP");
 }
 
-bool ETWNetwork::startSession() {    
+bool ETWNetwork::startSession() {
     // 기존 세션 정리
     {
-        size_t sz = sizeof(EVENT_TRACE_PROPERTIES)
-            + (strlen(SESSION_NAME) + 1);
+        size_t sz = sizeof(EVENT_TRACE_PROPERTIES) + (strlen(SESSION_NAME) + 1);
         std::vector<BYTE> tmp(sz, 0);
         auto* p = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(tmp.data());
         p->Wnode.BufferSize = static_cast<ULONG>(sz);
         ControlTraceA(0, SESSION_NAME, p, EVENT_TRACE_CONTROL_STOP);
     }
 
-    size_t sz = sizeof(EVENT_TRACE_PROPERTIES)
-        + (strlen(SESSION_NAME) + 1);
+    size_t sz = sizeof(EVENT_TRACE_PROPERTIES) + (strlen(SESSION_NAME) + 1);
     sessionProps.assign(sz, 0);
     auto* props = reinterpret_cast<EVENT_TRACE_PROPERTIES*>(sessionProps.data());
 
@@ -153,8 +234,6 @@ bool ETWNetwork::startSession() {
         spdlog::error("ETWNetwork: StartTraceA Error 0x{:X}", status);
         return false;
     }
-
-    
 
     ENABLE_TRACE_PARAMETERS params = {};
     params.Version = ENABLE_TRACE_PARAMETERS_VERSION_2;
@@ -175,8 +254,7 @@ bool ETWNetwork::startSession() {
 void ETWNetwork::processLoop() {
     EVENT_TRACE_LOGFILEA logFile = {};
     logFile.LoggerName = const_cast<LPSTR>(SESSION_NAME);
-    logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME
-        | PROCESS_TRACE_MODE_EVENT_RECORD;
+    logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     logFile.EventRecordCallback = onEvent;
 
     traceHandle = OpenTraceA(&logFile);
@@ -192,13 +270,14 @@ void ETWNetwork::processLoop() {
         spdlog::warn("ETWNetwork: ProcessTrace Close 0x{:X}", status);
 }
 
+// -------------------------------------------------------
+// onEvent — TDH 캐시 기반 파싱
+// -------------------------------------------------------
 VOID WINAPI ETWNetwork::onEvent(PEVENT_RECORD pEvent) {
     if (!instance || !instance->running.load()) return;
     if (!pEvent) return;
 
-    if (!IsEqualGUID(pEvent->EventHeader.ProviderId, instance->KERNEL_NETWORK_GUID))
-        return;
-
+    if (!IsEqualGUID(pEvent->EventHeader.ProviderId, instance->KERNEL_NETWORK_GUID)) return;
 
     USHORT id = pEvent->EventHeader.EventDescriptor.Id;
     bool isSend;
@@ -206,29 +285,27 @@ VOID WINAPI ETWNetwork::onEvent(PEVENT_RECORD pEvent) {
     else if (isRecvEvent(id)) isSend = false;
     else return;
 
-    if (!pEvent->UserData || pEvent->UserDataLength < 8) return;
+    if (!pEvent->UserData) return;
 
-    const BYTE* p = reinterpret_cast<const BYTE*>(pEvent->UserData);
+    // TDH 레이아웃 캐시 조회 (최초 호출 시 TDH 파싱)
+    const NetEventLayout* layout = instance->getOrBuildLayout(pEvent);
+    if (!layout || !layout->valid) return;
+    // UserData 길이 검증
+    if (pEvent->UserDataLength < layout->minLength) return;
 
-    // TcpIp/UdpIp 페이로드
-    // offset 0 : PID (ULONG)
-    // offset 4 : size (ULONG) ← 송수신 bytes
-    ULONG bytes = *reinterpret_cast<const ULONG*>(p + 4);
+    const BYTE* data = reinterpret_cast<const BYTE*>(pEvent->UserData);
+
+    // 캐시된 오프셋으로 필드 추출
+    DWORD pid = *reinterpret_cast<const ULONG*>(data + layout->pidOffset);
+    ULONG bytes = *reinterpret_cast<const ULONG*>(data + layout->bytesOffset);
+
+    if (pid == 0 || pid == 4 || pid == 0xFFFFFFFF) return;
     if (bytes == 0) return;
 
-    // EventHeader.ProcessId로 PID 직접 사용
-    //DWORD pid = pEvent->EventHeader.ProcessId;
-    DWORD pid = *reinterpret_cast<const ULONG*>(p + 0);
-    if (pid == 0 || pid == 4 || pid == 0xFFFFFFFF) return;
-
-    
-    // 로컬호스트 트래픽 제외 (len >= 12이면 목적지 IP 있음)
-    if (pEvent->UserDataLength >= 12) {
-        ULONG daddr = *reinterpret_cast<const ULONG*>(p + 8);
-
-        // 127.x.x.x 전체 제외 (루프백)
-        //if ((daddr & 0xFF) == 127) return;
-        if (instance->loopbackAddrs.count(daddr)) return;  // 루프백 제외
+    // 로컬호스트 트래픽 제외 (daddr 필드가 있을때만)
+    if (layout->daddrOffset != ULONG_MAX && pEvent->UserDataLength >= layout->daddrOffset + sizeof(ULONG)) {
+        ULONG daddr = *reinterpret_cast<const ULONG*>(data + layout->daddrOffset);
+        if (instance->loopbackAddrs.count(daddr)) return;
     }
 
     auto& entry = instance->getOrCreateEntry(pid);
@@ -265,4 +342,19 @@ NetMbps ETWNetwork::getAndReset(DWORD pid, double elapsedSec) {
     result.sentMbps = static_cast<double>(s) / elapsedSec * BYTES_TO_MBPS;
     result.recvMbps = static_cast<double>(r) / elapsedSec * BYTES_TO_MBPS;
     return result;
+}
+
+// -------------------------------------------------------
+// 죽은 프로세스 제거
+// -------------------------------------------------------
+void ETWNetwork::retainOnlyPids(const std::unordered_set<DWORD>& alivePids) {
+    std::lock_guard<std::mutex> lock(accumMtx);
+    for (auto it = accumulator.begin(); it != accumulator.end();) {
+        if (!alivePids.count(it->first)) {
+            delete it->second;
+            it = accumulator.erase(it);
+            continue;
+        }
+        ++it;
+    }
 }

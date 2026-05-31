@@ -7,34 +7,66 @@ MemCollector::MemCollector() {
 	memTotalMB = totalRAM / (1024 * 1024);
 }
 
-//Available Memory°È commit °Ë ¿ß«Ë
-//Available ∏≈øÏ ¿€¿Ω Commit % 90%+ ¿ß«Ë
+//Available Memory‚Üì commit ‚Üë ÏúÑÌóò
+//Available Îß§Ïö∞ ÏûëÏùå Commit % 90%+ ÏúÑÌóò
 void MemCollector::init(PDH_HQUERY& qurey) {
-	PdhAddEnglishCounterW(
+	PDH_STATUS memStatus = PdhAddEnglishCounterW(
 		qurey,
 		L"\\Memory\\Available MBytes",
 		0,
 		&availableMem
 	);
-	PdhAddEnglishCounterW(
+	if (memStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", memStatus);
+	}
+
+	PDH_STATUS commitStatus = PdhAddEnglishCounterW(
 		qurey,
 		L"\\Memory\\% Committed Bytes In Use",
 		0,
 		&commitMemPercent
 	);
-	PdhAddEnglishCounterW(
+	if (commitStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", commitStatus);
+	}
+
+	PDH_STATUS commitMemStatus = PdhAddEnglishCounterW(
 		qurey,
 		L"\\Memory\\Committed Bytes",
 		0,
 		&committedMem
 	);
-	PdhAddEnglishCounterW(
+	if (commitMemStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", commitMemStatus);
+	}
+
+
+	PDH_STATUS commitLimitStatus = PdhAddEnglishCounterW(
 		qurey,
 		L"\\Memory\\Commit Limit",
 		0,
 		&commitLimit
 	);
+	if (commitLimitStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", commitLimitStatus);
+	}
 }
+
+double MemCollector::getPdhDoubleValue(PDH_HCOUNTER counter) {
+	PDH_FMT_COUNTERVALUE val = {}; // Ï¥àÍ∏∞Ìôî
+
+	PDH_STATUS status = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, NULL, &val);
+
+	if (status != ERROR_SUCCESS) return 0.0;
+
+	if (val.CStatus != PDH_CSTATUS_VALID_DATA &&
+		val.CStatus != PDH_CSTATUS_NEW_DATA) {
+		return 0.0;
+	}
+
+	return val.doubleValue;
+}
+
 double MemCollector::getAvailMemMB() const {
 	return memAvailMB;
 }
@@ -49,28 +81,21 @@ double MemCollector::getMemTotalMB() const {
 }
 
 double MemCollector::getCommitMemPercent() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(commitMemPercent, PDH_FMT_DOUBLE, NULL, &val);
-	return val.doubleValue;
+	return getPdhDoubleValue(commitMemPercent);
 }
 double MemCollector::getCommittedMemGB() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(committedMem, PDH_FMT_DOUBLE, NULL, &val);
-	double committedMemMB = val.doubleValue / (1024.0 * 1024.0);
-	return committedMemMB/1024.0;
+	double committedMemMB = getPdhDoubleValue(committedMem) / (1024.0 * 1024.0);
+	return committedMemMB / 1024.0;
 }
 double MemCollector::getCommitLimitGB() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(commitLimit, PDH_FMT_DOUBLE, NULL, &val);
-	double commitLimitMB = val.doubleValue /(1024.0*1024.0);
-	return commitLimitMB/1024.0;
+	double commitLimitMB = getPdhDoubleValue(commitLimit) / (1024.0 * 1024.0);
+	return commitLimitMB / 1024.0;
 }
 
 
 void MemCollector::collectMemInfo() {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(availableMem, PDH_FMT_DOUBLE, NULL, &val);
-	memAvailMB = val.doubleValue;
+	double val = getPdhDoubleValue(availableMem);
+	memAvailMB = val;
 	memUsedMB = memTotalMB - memAvailMB;
 	memUsedPercent = (memUsedMB / memTotalMB) * 100.0;
 }

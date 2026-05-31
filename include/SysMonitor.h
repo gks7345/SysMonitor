@@ -8,6 +8,7 @@
 #include <chrono>
 #include <conio.h>
 #include <thread>
+#include "Config.h"
 #include "collectors/SystemCollector.h"
 #include "collectors/ProcessCollector.h"
 #include "datastore/DataStore.h"

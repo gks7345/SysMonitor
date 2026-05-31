@@ -8,16 +8,19 @@
 
 class DataStore {
 private:
+    RingBuffer<SnapshotProcData> procsData;
+    RingBuffer<SnapshotSysData>  sysData;
 
-    RingBuffer<SnapShotProcData> procsData;
-    RingBuffer<SnapShotSysData>  sysData;
 
     static std::string makeDailyDbPath();
 
     std::string currentDbPath;
     duckdb::DuckDB     db;
     duckdb::Connection con;
-    
+
+    std::mutex procMtx;
+    std::mutex sysMtx;
+    std::mutex dbMtx;
 
     void initDB();
 
@@ -32,15 +35,15 @@ public:
     DataStore(size_t procCap = 120, size_t sysCap = 120);
     ~DataStore() = default;
 
-    void pushProcsData(const SnapShotProcData& data);
-    void pushSysData(const SnapShotSysData& data);
+    void pushProcsData(const SnapshotProcData& data);
+    void pushSysData(const SnapshotSysData& data);
 
     void flushProcsToDB();
     void flushSysToDB();
 
     std::string queryReport(const std::string& sql);
 
-    
+
     void checkDailyRotation();
 
     size_t getProcsSize() const { return procsData.getSize(); }

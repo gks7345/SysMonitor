@@ -8,7 +8,7 @@ DataStore::DataStore(size_t procCap, size_t sysCap)
     , currentDbPath(makeDailyDbPath())
     , db(currentDbPath)  // 날짜 기반 파일명
     , con(db)
-    
+
 {
     initDB();
     spdlog::info("DB file location: {}", currentDbPath);  // ← 실제 경로 출력
@@ -34,7 +34,7 @@ std::string DataStore::makeDailyDbPath() {
 
 void DataStore::checkDailyRotation() {
     std::string newPath = makeDailyDbPath();
-    
+
     if (newPath == currentDbPath) return;
 
     // 날짜 바뀌면 새 파일로 교체
@@ -75,7 +75,7 @@ void DataStore::initDB() {
             timestamp           BIGINT,
 
             cpuTotal            DOUBLE,
-            cpuFreqMHz          DOUBLE,
+            cpuFreqGHz          DOUBLE,
             cpuUser             DOUBLE,
             cpuKernel           DOUBLE,
             cpuQueueLength      DOUBLE,
@@ -97,11 +97,13 @@ void DataStore::initDB() {
     )");
 }
 
-void DataStore::pushProcsData(const SnapShotProcData& data) {
+void DataStore::pushProcsData(const SnapshotProcData& data) {
+    std::lock_guard<std::mutex> lock(procMtx);
     procsData.enQueue(data);
 }
 
-void DataStore::pushSysData(const SnapShotSysData& data) {
+void DataStore::pushSysData(const SnapshotSysData& data) {
+    std::lock_guard<std::mutex> lock(sysMtx);
     sysData.enQueue(data);
 }
 
@@ -109,22 +111,28 @@ void DataStore::pushSysData(const SnapShotSysData& data) {
 // SnapShotProcData.procs는 vector<SnapShotProc>이므로
 // 하나의 스냅샷에서 여러 행 INSERT
 void DataStore::flushProcsToDB() {
-    auto items = procsData.deQueue();
-
-    if (items.empty()) {
-        spdlog::warn("items is empty");
-        return;
+    spdlog::info("flush start ringbuffer size={}", procsData.getSize());
+    std::vector<SnapshotProcData> items;
+    {
+        std::lock_guard<std::mutex> lock(procMtx);
+        items = procsData.deQueue();
     }
+    spdlog::info("deQueue after items.size()={}", items.size());
 
+    if (items.empty()) return;
 
+    std::lock_guard<std::mutex> lock(dbMtx);
     duckdb::Appender appender(con, "proc_snapshot");
+
+    int rowCount = 0;
+
     for (const auto& snap : items) {
         int64_t ts = toTimestamp(snap.timestamp);
 
         for (const auto& p : snap.procs) {
             appender.BeginRow();
             appender.Append(ts);
-            appender.Append(static_cast<int32_t>(snap.topN));          
+            appender.Append(static_cast<int32_t>(snap.topN));
             appender.Append(duckdb::string_t(snap.sortCriterion));
             appender.Append(p.procID);
             appender.Append(duckdb::string_t(p.procName));
@@ -140,6 +148,7 @@ void DataStore::flushProcsToDB() {
     }
     appender.Close();
     spdlog::info("DataStore: proc_snapshot {}th snapshot flush", items.size());
+    spdlog::info("INSERT Complete {} row", rowCount);
 
     // 즉시 디스크에 반영
     con.Query("CHECKPOINT");
@@ -147,14 +156,15 @@ void DataStore::flushProcsToDB() {
 
 // SnapShotSysData → DuckDB
 void DataStore::flushSysToDB() {
-    auto items = sysData.deQueue();
 
-    if (items.empty()) {
-        spdlog::warn("items is empty");
-        return;
+    std::vector<SnapshotSysData> items;
+    {
+        std::lock_guard<std::mutex> lock(sysMtx);
+        items = sysData.deQueue();
     }
+    if (items.empty()) return;
 
-
+    std::lock_guard<std::mutex> lock(dbMtx);
     duckdb::Appender appender(con, "sys_snapshot");
     for (const auto& s : items) {
         appender.BeginRow();
@@ -162,7 +172,7 @@ void DataStore::flushSysToDB() {
 
         // CPU
         appender.Append(s.cpu.cpuTotal);
-        appender.Append(s.cpu.cpuFredMHz);
+        appender.Append(s.cpu.cpuFredGHz);
         appender.Append(s.cpu.cpuUser);
         appender.Append(s.cpu.cpuKernel);
         appender.Append(s.cpu.cpuQueueLength);
@@ -188,11 +198,10 @@ void DataStore::flushSysToDB() {
     }
     appender.Close();
     spdlog::info("DataStore: sys_snapshot {}th flush", items.size());
-    // 즉시 디스크에 반영
-    con.Query("CHECKPOINT");
 }
 
 std::string DataStore::queryReport(const std::string& sql) {
+    std::lock_guard<std::mutex> lock(dbMtx);
     auto result = con.Query(sql);
     if (result->HasError()) {
         spdlog::error("DataStore: query error {}", result->GetError());

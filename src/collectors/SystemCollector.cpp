@@ -6,23 +6,23 @@ SystemCollector::SystemCollector() : queryMiddle(nullptr), querySlow(nullptr)
 {
 	PDH_STATUS statusMiddle = PdhOpenQuery(nullptr, 0, &queryMiddle);
 	if (statusMiddle != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(middle) ½ÇÆÐ 0x{:X}", statusMiddle);
+		spdlog::error("SystemCollector: PdhOpenQuery(middle) ì‹¤íŒ¨ 0x{:X}", statusMiddle);
 	}
 	PDH_STATUS statusSlow = PdhOpenQuery(nullptr, 0, &querySlow);
 	if (statusSlow != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(slow) ½ÇÆÐ 0x{:X}", statusSlow);
+		spdlog::error("SystemCollector: PdhOpenQuery(slow) ì‹¤íŒ¨ 0x{:X}", statusSlow);
 	}
 
-	
+
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
-	
+
 	cpu.init(queryMiddle);
 	mem.init(queryMiddle);
 	net.init(queryMiddle);
 	disk.init(querySlow);
 
-	//ÃÊ±â ¼öÁý
+	//ì´ˆê¸° ìˆ˜ì§‘
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
 	Sleep(1000);
@@ -49,7 +49,7 @@ void SystemCollector::printToConsole() const {
 		"DISK : R %4.2f KB/s  W %4.2f KB/s | "
 		"NET : Recv %-12s  Send %-12s\n",
 		cpu.getTotalUsage(),
-		cpu.getCpuFredGHz(),
+		cpu.getCpuFreqGHz(),
 		mem.getMemUsedMB() / 1024.0,
 		mem.getMemTotalMB() / 1024.0,
 		mem.getMemUsagedPercent(),
@@ -60,38 +60,37 @@ void SystemCollector::printToConsole() const {
 		net.formatNetSpeed(net.getRecvKbps()).c_str(),
 		net.formatNetSpeed(net.getSentKbps()).c_str()
 	);
-	printf("%s\n", std::string(80, '-').c_str());
 }
 
-SnapShotSysData SystemCollector::makeSnapShot() {
-	SnapShotSysData snapShot;
-	snapShot.timestamp = std::chrono::system_clock::now();
-	
+SnapshotSysData SystemCollector::makeSnapshot() {
+	SnapshotSysData snapshot;
+	snapshot.timestamp = std::chrono::system_clock::now();
+
 	const auto& cpu_ = cpu;
 	const auto& mem_ = mem;
 	const auto& disk_ = disk;
 	const auto& net_ = net;
 
-	snapShot.cpu.cpuTotal = cpu_.getTotalUsage();
-	snapShot.cpu.cpuFredMHz = cpu_.getCpuFredGHz();
-	snapShot.cpu.cpuQueueLength = cpu_.getCpuQueueLength();
-	snapShot.cpu.cpuUser = cpu_.getCpuUser();
-	snapShot.cpu.cpuKernel = cpu_.getCpuKernel();
+	snapshot.cpu.cpuTotal = cpu_.getTotalUsage();
+	snapshot.cpu.cpuFredGHz = cpu_.getCpuFreqGHz();
+	snapshot.cpu.cpuQueueLength = cpu_.getCpuQueueLength();
+	snapshot.cpu.cpuUser = cpu_.getCpuUser();
+	snapshot.cpu.cpuKernel = cpu_.getCpuKernel();
 
-	snapShot.mem.memTotalMB = mem_.getMemTotalMB();
-	snapShot.mem.memAvailMB = mem_.getAvailMemMB();
-	snapShot.mem.memUsagePercent = mem_.getMemUsagedPercent();
-	snapShot.mem.memUsedMB = mem_.getMemUsedMB();
-	snapShot.mem.commitMemPercent = mem_.getCommitMemPercent();
-	snapShot.mem.committedMemGB = mem_.getCommittedMemGB();
-	snapShot.mem.commitLimitGB = mem_.getCommitLimitGB();
+	snapshot.mem.memTotalMB = mem_.getMemTotalMB();
+	snapshot.mem.memAvailMB = mem_.getAvailMemMB();
+	snapshot.mem.memUsagePercent = mem_.getMemUsagedPercent();
+	snapshot.mem.memUsedMB = mem_.getMemUsedMB();
+	snapshot.mem.commitMemPercent = mem_.getCommitMemPercent();
+	snapshot.mem.committedMemGB = mem_.getCommittedMemGB();
+	snapshot.mem.commitLimitGB = mem_.getCommitLimitGB();
 
-	snapShot.disk.lastTime = lastTime;
-	snapShot.disk.diskReadKBs = disk_.getReadKB();
-	snapShot.disk.diskWriteKBs = disk_.getWriteKB();
+	snapshot.disk.lastTime = lastTime;
+	snapshot.disk.diskReadKBs = disk_.getReadKB();
+	snapshot.disk.diskWriteKBs = disk_.getWriteKB();
 
-	snapShot.net.netRecvKbps = net_.getRecvKbps();
-	snapShot.net.netSentKbps = net_.getSentKbps();
-	return snapShot;
+	snapshot.net.netRecvKbps = net_.getRecvKbps();
+	snapshot.net.netSentKbps = net_.getSentKbps();
+	return snapshot;
 }
 
