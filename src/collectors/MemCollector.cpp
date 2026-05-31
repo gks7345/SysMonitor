@@ -7,8 +7,8 @@ MemCollector::MemCollector() {
 	memTotalMB = totalRAM / (1024 * 1024);
 }
 
-//Available Memory¡é commit ¡è À§Çè
-//Available ¸Å¿ì ÀÛÀ½ Commit % 90%+ À§Çè
+//Available MemoryÂ¡Ã© commit Â¡Ã¨ Ã€Â§Ã‡Ã¨
+//Available Â¸Ã…Â¿Ã¬ Ã€Ã›Ã€Â½ Commit % 90%+ Ã€Â§Ã‡Ã¨
 void MemCollector::init(PDH_HQUERY& qurey) {
 	PdhAddEnglishCounterW(
 		qurey,

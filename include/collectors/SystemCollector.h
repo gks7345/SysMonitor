@@ -11,9 +11,9 @@
 
 class SystemCollector {
 private:
-	// 1ÃÊ °£°Ý
+	// 1ÃƒÃŠ Â°Â£Â°Ã
 	PDH_HQUERY queryMiddle;
-	//2ÃÊ °£°Ý
+	//2ÃƒÃŠ Â°Â£Â°Ã
 	PDH_HQUERY querySlow;
 
 	CpuCollector cpu;

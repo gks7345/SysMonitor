@@ -6,11 +6,11 @@ SystemCollector::SystemCollector() : queryMiddle(nullptr), querySlow(nullptr)
 {
 	PDH_STATUS statusMiddle = PdhOpenQuery(nullptr, 0, &queryMiddle);
 	if (statusMiddle != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(middle) Ω«∆– 0x{:X}", statusMiddle);
+		spdlog::error("ProcessCollector: PdhOpenQuery(middle) ¬Ω√á√Ü√ê 0x{:X}", statusMiddle);
 	}
 	PDH_STATUS statusSlow = PdhOpenQuery(nullptr, 0, &querySlow);
 	if (statusSlow != ERROR_SUCCESS) {
-		spdlog::error("ProcessCollector: PdhOpenQuery(slow) Ω«∆– 0x{:X}", statusSlow);
+		spdlog::error("ProcessCollector: PdhOpenQuery(slow) ¬Ω√á√Ü√ê 0x{:X}", statusSlow);
 	}
 
 	
@@ -22,7 +22,7 @@ SystemCollector::SystemCollector() : queryMiddle(nullptr), querySlow(nullptr)
 	net.init(queryMiddle);
 	disk.init(querySlow);
 
-	//√ ±‚ ºˆ¡˝
+	//√É√ä¬±√¢ ¬º√∂√Å√Ω
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
 	Sleep(1000);

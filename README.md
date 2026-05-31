@@ -77,4 +77,59 @@ SysMonitor는 Windows 작업관리자에서 영감을 받은 C++ 포트폴리오
  세션 리포트 - nlohmann/json
  알림(Toast) - WinToastLib
  UI & Graph - Dear ImGui, ImPlot
+
+##
+Process Collector
+ - 상위 10개의 프로세스 정보 수집
+   * PID
+   * 프로세스 이름
+   * CPU
+   * 전용 메모리 크기(Private Mem)
+   * 실제 물리 메모리 크기 (Working Set)
+
+Target Program Collector
+ - 최대 5개의 특정 프로세스 정보 수집
+   * PID
+   * 프로세스 이름
+   * CPU (0.5 초)
+   * 전용 메모리 크기
+   * 실제 물리 메모리 크기
+   * 핸들 정보
+   * 네트워크 (트래픽 확인 0.5초)
+
+Data Store
+ - 링 버퍼 형식으로 프로그램 내부에 저장 -> Session Reporter 이전의 임시 저장소
+   * 크기는 8MB 블록 저장
+   * 시스템, 일반 프로세스는 상위 10개, 타겟 프로그램의 경우 꺼져 있는것까지 최대 5개
+   * 삭제된 정보는 Session Reporter를 통해 조회
+
+Session Reporter
+ - 시계열(Time Stamp)로 매트릭스 별로 저장 > DuckDB
+   * 1분 주기로 저장, Session Reporter에 저장된 Data Store 블록은 삭제
+   * 매트릭스
+     1. System(Time Stamp + 메트리스 이름)
+        * CPU Total
+        * Processor Queue Length 병목 판단용
+        * Kernel Time 이상 탐지용
+        * User Time   이상 탐지용
+        * 디스크 쓰기
+        * 디스크 읽기
+        * 커밋된 메모리
+        * 사용중인 메모리
+        * 네트워크 읽기
+        * 네트워크 쓰기
+     2. Process(Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+        * CPU
+        * 전용 메모리 크기(Private Memorry)
+        * 실제 물리 메모리 크기(Working Set)
+     3. Target Program ( Time Stamp + PID + 프로세스 이름 + 메트릭스 이름)
+        * CPU
+        * 전용 메모리 크기(Private Memorry)
+        * 실제 물리 메모리 크기(Working Set)
+        * Network
+        * 핸들
+
+
  
+
+

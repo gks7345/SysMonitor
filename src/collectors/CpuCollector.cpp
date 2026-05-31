@@ -1,28 +1,28 @@
 #include "collectors/CpuCollector.h"
 
 void CpuCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounterW(	//ÀüÃ¼ »ç¿ë·ü
+	PdhAddEnglishCounterW(	//ì „ì²´ ì‚¬ìš©ë¥ 
 		query,
 		L"\\Processor Information(_Total)\\% Processor Utility",
 		0,
 		&cpuTotal
 	);
-	PdhAddEnglishCounterW(	//ÇöÀç Å¬·° ¼Óµµ
+	PdhAddEnglishCounterW(	//í˜„ì¬ í´ëŸ­ ì†ë„
 		query,
 		L"\\Processor Information(_Total)\\Actual Frequency",
 		0,
 		&cpuFredMHz
 	);
 
-	PdhAddEnglishCounterW(	// Processor Queue Length º´¸ñ ÆÇ´Ü¿ë ÄÚ¾î ¼ö ÀÌ»ó -> º´¸ñ °¡´É
+	PdhAddEnglishCounterW(	// Processor Queue Length ë³‘ëª© íŒë‹¨ìš© ì½”ì–´ ìˆ˜ ì´ìƒ -> ë³‘ëª© ê°€ëŠ¥
 		query,
 		L"\\System\\Processor Queue Length",
 		0,
 		&cpuQueueLength
 	);
-	//CPU »ç¿ë ¼º°İ ºĞ¼®
-	//User ³ôÀ½ -> ÇÁ·Î¼¼½º ¿øÀÎ
-	//Kernel ³ôÀ½ -> OS/µå¶óÀÌ¹ö / I/O ¹®Á¦
+	//CPU ì‚¬ìš© ì„±ê²© ë¶„ì„
+	//User ë†’ìŒ -> í”„ë¡œì„¸ìŠ¤ ì›ì¸
+	//Kernel ë†’ìŒ -> OS/ë“œë¼ì´ë²„ / I/O ë¬¸ì œ
 	PdhAddEnglishCounterW(
 		query,
 		L"\\Processor Information(_Total)\\% User Time",
