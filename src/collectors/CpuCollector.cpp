@@ -62,10 +62,13 @@ double CpuCollector::getPdhDoubleValue(PDH_HCOUNTER counter) {
 
 	PDH_STATUS status = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, NULL, &val);
 
-	if (status != ERROR_SUCCESS) return 0.0;
+	if (status != ERROR_SUCCESS) {
+		spdlog::error("val Status ERROR 0x{:X}", status);
+		return 0.0;
+	}
 
-	if (val.CStatus != PDH_CSTATUS_VALID_DATA &&
-		val.CStatus != PDH_CSTATUS_NEW_DATA) {
+	if (val.CStatus != PDH_CSTATUS_VALID_DATA && val.CStatus != PDH_CSTATUS_NEW_DATA) {
+		spdlog::error("CStatus ERROR 0x{:X}", val.CStatus);
 		return 0.0;
 	}
 
@@ -78,10 +81,14 @@ double CpuCollector::getTotalUsage() const {
 double CpuCollector::getCpuFreqGHz() const {
 	double val = getPdhDoubleValue(cpuFreqMHz);
 
-	if (val > 1'000'000) return val / 1'000'000'000.0;  // Hz  → GHz
-	if (val > 1'000)     return val / 1'000'000.0;      // KHz → GHz
-	if (val > 10)        return val / 1'000.0;          // MHz → GHz
-	return val;                     // 이미 GHz
+	if (val > 1'000'000'000)  // Hz (10억 이상)
+		return val / 1'000'000'000.0;
+	else if (val > 1'000'000) // KHz (100만 이상)
+		return val / 1'000'000.0;
+	else if (val > 100)       // MHz (100 이상)
+		return val / 1'000.0;
+	else                      // 이미 GHz (1~6 범위)
+		return val;
 }
 double CpuCollector::getCpuQueueLength() const {
 	return getPdhDoubleValue(cpuQueueLength);

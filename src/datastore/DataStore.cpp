@@ -73,6 +73,7 @@ void DataStore::initDB() {
     con.Query(R"(
         CREATE TABLE IF NOT EXISTS sys_snapshot (
             timestamp           BIGINT,
+            diskTimestamp       BIGINT,
 
             cpuTotal            DOUBLE,
             cpuFreqGHz          DOUBLE,
@@ -107,6 +108,11 @@ void DataStore::pushSysData(const SnapshotSysData& data) {
     sysData.enQueue(data);
 }
 
+double DataStore::safeDouble(double v) {
+    if (std::isnan(v) || std::isinf(v)) return 0.0;
+    return v;
+}
+
 // SnapShotProcData → DuckDB
 // SnapShotProcData.procs는 vector<SnapShotProc>이므로
 // 하나의 스냅샷에서 여러 행 INSERT
@@ -125,30 +131,37 @@ void DataStore::flushProcsToDB() {
     duckdb::Appender appender(con, "proc_snapshot");
 
     int rowCount = 0;
+    try {
+        for (const auto& snap : items) {
+            int64_t ts = toTimestamp(snap.timestamp);
 
-    for (const auto& snap : items) {
-        int64_t ts = toTimestamp(snap.timestamp);
-
-        for (const auto& p : snap.procs) {
-            appender.BeginRow();
-            appender.Append(ts);
-            appender.Append(static_cast<int32_t>(snap.topN));
-            appender.Append(duckdb::string_t(snap.sortCriterion));
-            appender.Append(p.procID);
-            appender.Append(duckdb::string_t(p.procName));
-            appender.Append(p.procCpuUsage);
-            appender.Append(p.procMemoryMB);
-            appender.Append(p.procPrivateMemoryMB);
-            appender.Append(p.procDiskReadMBs);
-            appender.Append(p.procDiskWriteMBs);
-            appender.Append(p.procNetSentMbps);
-            appender.Append(p.procNetRecvMbps);
-            appender.EndRow();
+            for (const auto& p : snap.procs) {
+                appender.BeginRow();
+                appender.Append(ts);
+                appender.Append(static_cast<int32_t>(snap.topN));
+                appender.Append(duckdb::string_t(snap.sortCriterion));
+                appender.Append(p.procID);
+                appender.Append(duckdb::string_t(p.procName));
+                appender.Append(safeDouble(p.procCpuUsage));
+                appender.Append(safeDouble(p.procMemoryMB));
+                appender.Append(safeDouble(p.procPrivateMemoryMB));
+                appender.Append(safeDouble(p.procDiskReadMBs));
+                appender.Append(safeDouble(p.procDiskWriteMBs));
+                appender.Append(safeDouble(p.procNetSentMbps));
+                appender.Append(safeDouble(p.procNetRecvMbps));
+                appender.EndRow();
+            }
         }
+        appender.Close();
+        spdlog::info("DataStore: proc_snapshot {}th snapshot flush", items.size());
+        spdlog::info("INSERT Complete {} row", rowCount);
     }
-    appender.Close();
-    spdlog::info("DataStore: proc_snapshot {}th snapshot flush", items.size());
-    spdlog::info("INSERT Complete {} row", rowCount);
+    catch (const duckdb::InvalidInputException& e) {
+        spdlog::error("flushProcsToDB InvalidInput: {}", e.what());
+    }
+    catch (const std::exception& e) {
+        spdlog::error("flushProcsToDB 예외: {}", e.what());
+    }
 
     // 즉시 디스크에 반영
     con.Query("CHECKPOINT");
@@ -166,38 +179,47 @@ void DataStore::flushSysToDB() {
 
     std::lock_guard<std::mutex> lock(dbMtx);
     duckdb::Appender appender(con, "sys_snapshot");
-    for (const auto& s : items) {
-        appender.BeginRow();
-        appender.Append(toTimestamp(s.timestamp));
+    try {
+        for (const auto& s : items) {
+            appender.BeginRow();
+            appender.Append(toTimestamp(s.timestamp));
+            appender.Append(toTimestamp(s.disk.lastTime));
 
-        // CPU
-        appender.Append(s.cpu.cpuTotal);
-        appender.Append(s.cpu.cpuFredGHz);
-        appender.Append(s.cpu.cpuUser);
-        appender.Append(s.cpu.cpuKernel);
-        appender.Append(s.cpu.cpuQueueLength);
+            // CPU
+            appender.Append(safeDouble(s.cpu.cpuTotal));
+            appender.Append(safeDouble(s.cpu.cpuFreqGHz));
+            appender.Append(safeDouble(s.cpu.cpuUser));
+            appender.Append(safeDouble(s.cpu.cpuKernel));
+            appender.Append(safeDouble(s.cpu.cpuQueueLength));
 
-        // MEM
-        appender.Append(s.mem.memTotalMB);
-        appender.Append(s.mem.memUsagePercent);
-        appender.Append(s.mem.memUsedMB);
-        appender.Append(s.mem.memAvailMB);
-        appender.Append(s.mem.commitMemPercent);
-        appender.Append(s.mem.committedMemGB);
-        appender.Append(s.mem.commitLimitGB);
+            // MEM
+            appender.Append(safeDouble(s.mem.memTotalMB));
+            appender.Append(safeDouble(s.mem.memUsagePercent));
+            appender.Append(safeDouble(s.mem.memUsedMB));
+            appender.Append(safeDouble(s.mem.memAvailMB));
+            appender.Append(safeDouble(s.mem.commitMemPercent));
+            appender.Append(safeDouble(s.mem.committedMemGB));
+            appender.Append(safeDouble(s.mem.commitLimitGB));
 
-        // DISK
-        appender.Append(s.disk.diskReadKBs);
-        appender.Append(s.disk.diskWriteKBs);
+            // DISK
+            appender.Append(safeDouble(s.disk.diskReadKBs));
+            appender.Append(safeDouble(s.disk.diskWriteKBs));
 
-        // NET
-        appender.Append(s.net.netSentKbps);
-        appender.Append(s.net.netRecvKbps);
+            // NET
+            appender.Append(safeDouble(s.net.netSentKbps));
+            appender.Append(safeDouble(s.net.netRecvKbps));
 
-        appender.EndRow();
+            appender.EndRow();
+        }
+        appender.Close();
+        spdlog::info("DataStore: sys_snapshot {}th flush", items.size());
     }
-    appender.Close();
-    spdlog::info("DataStore: sys_snapshot {}th flush", items.size());
+    catch (const duckdb::InvalidInputException& e) {
+        spdlog::error("flushSysToDB InvalidInput: {}", e.what());
+    }
+    catch (const std::exception& e) {
+        spdlog::error("flushSysToDB 예외: {}", e.what());
+    }
 }
 
 std::string DataStore::queryReport(const std::string& sql) {
@@ -209,3 +231,8 @@ std::string DataStore::queryReport(const std::string& sql) {
     }
     return result->ToString();
 }
+
+duckdb::Connection& DataStore::getConnection() {
+    std::lock_guard<std::mutex> lock(dbMtx);
+    return con;
+};

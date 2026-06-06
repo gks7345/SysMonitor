@@ -35,7 +35,7 @@ int main()
 
         sc.printToConsole();
         printf("%s\n", std::string(Config::CONSOLE_WIDTH, '-').c_str());
-        proc.aggregateToParents();
+        //proc.aggregateToParents();
         proc.sortProc();
 
         proc.printToConsole();

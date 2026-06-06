@@ -136,27 +136,36 @@ void ProcessCollector::collectProc() {
 	aggregatedProcList.clear();
 	PdhCollectQueryData(queryMiddle);
 
+	// 1단계 - PID 배열 수집
 	DWORD pidItemCount = 0;
+	std::vector<char> pidbuffer = getCountArray(procIDMiddle, pidItemCount);
+	auto* pidItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(pidbuffer.data());
+
+	auto tree = buildProcTree();
+	// 2단계 - ToolHelp32로 PID -> 이름 맵 구성
+	std::unordered_map<DWORD, std::string> pidToName;
+	for (const auto& [pid, entry] : tree) {
+		pidToName[pid] = entry.name;
+	}
+
+	// 3단계 - PID 배열 순회하며 이름으로 나머지 카운터 매핑
+	// 같은 query에서 수집 -> 인덱스 일치 보장
+	// PID로 이름 검증 -> 이름 중복 문제 없음
 	DWORD cpuItemCount = 0;
 	DWORD memItemCount = 0, priMemItemCount = 0;
 	DWORD diskRCounter = 0, diskWCounter = 0;
 
-	std::vector<char> pidbuffer = getCountArray(procIDMiddle, pidItemCount);
-	std::vector<char> cpubuffer = getCountArray(procCpuUsage, cpuItemCount);
 
+	std::vector<char> cpubuffer = getCountArray(procCpuUsage, cpuItemCount);
 	std::vector<char> membuffer = getCountArray(procMem, memItemCount);
 	std::vector<char> primembuffer = getCountArray(procPrivateMem, priMemItemCount);
-
 	std::vector<char> diskRbuffer = getCountArray(procDiskR, diskRCounter);
 	std::vector<char> diskWbuffer = getCountArray(procDiskW, diskWCounter);
 
 
-	auto* pidItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(pidbuffer.data());
 	auto* cpuItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(cpubuffer.data());
-
 	auto* memItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(membuffer.data());
 	auto* privateMemItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(primembuffer.data());
-
 	auto* diskRItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(diskRbuffer.data());
 	auto* diskWItems = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(diskWbuffer.data());
 
@@ -169,23 +178,16 @@ void ProcessCollector::collectProc() {
 	if (cores == 0) cores = 1;
 
 	for (DWORD i = 0; i < safeCount; ++i) {
-		std::string pidName = pidItems[i].szName;
-		std::string cpuName = cpuItems[i].szName;
-		std::string memName = memItems[i].szName;
-		std::string priName = privateMemItems[i].szName;
-		std::string diskRName = diskRItems[i].szName;
-		std::string diskWName = diskWItems[i].szName;
+		DWORD pid = static_cast<DWORD>(pidItems[i].FmtValue.doubleValue);
 
-		if (pidName != cpuName || pidName != memName ||
-			pidName != priName || pidName != diskRName ||
-			pidName != diskWName) {
-			spdlog::warn("collectProc: Index Mismatch [{}] pid={} cpu={} mem={} pri={} disk= R {} / W {}",
-				i, pidName, cpuName, memName, priName, diskRName, diskWName);
-			continue;
-		}
+		// ToolHelp32로 얻은 이름으로 검증
+		auto nameIt = pidToName.find(pid);
+		if (nameIt == pidToName.end()) continue;
+
+		std::string name = nameIt->second;
 
 		//if (name == "_Total" || name == "Idle") continue;
-		if (isSystemProcess(pidName)) continue;
+		if (isSystemProcess(name)) continue;
 
 		if (pidItems[i].FmtValue.CStatus != PDH_CSTATUS_VALID_DATA &&
 			pidItems[i].FmtValue.CStatus != PDH_CSTATUS_NEW_DATA)
@@ -193,13 +195,12 @@ void ProcessCollector::collectProc() {
 
 		auto proc_ = std::make_unique<ProcList>();
 
-		proc_->setProcID(static_cast<uint32_t>(pidItems[i].FmtValue.doubleValue));
-		proc_->setProcName(pidName);
+		proc_->setProcID(pid);
+		proc_->setProcName(name);
 
 		proc_->setProcCpuUsage(cpuItems[i].FmtValue.doubleValue / cores);
 		proc_->setProcMemoryMB(memItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
 		proc_->setProcPrivateMemoryMB(privateMemItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
-
 		proc_->setDiskReadMBs(diskRItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
 		proc_->setDiskWriteMBs(diskWItems[i].FmtValue.doubleValue / (1024.0 * 1024.0));
 
@@ -215,6 +216,8 @@ void ProcessCollector::collectProc() {
 		proc->setNetRecvMbps(net.recvMbps);
 	}
 
+	aggregateToParents(tree);
+
 	// 60초 주기로 현재 죽어있는 프로세스 ETWNetwork에서 정리
 	if (++cleanupTick >= 60) {
 		etwNet.retainOnlyPids(alivePids);
@@ -225,8 +228,8 @@ void ProcessCollector::collectProc() {
 // ---------------------------------------------------------------------------
 // 자식 프로세스 값 -> 메인 프로세스에 합산
 // ---------------------------------------------------------------------------
-void ProcessCollector::aggregateToParents() {
-	auto tree = buildProcTree();
+void ProcessCollector::aggregateToParents(std::unordered_map<DWORD, ProcEntry>& tree) {
+	//auto tree = buildProcTree();
 
 	// PID -> ProcList
 	std::unordered_map<DWORD, ProcList*> pidMap;
@@ -363,8 +366,8 @@ ProcList* ProcessCollector::findProcByPid(DWORD pid, std::vector<std::unique_ptr
 }
 
 SnapshotProcData ProcessCollector::makeSnapshot() {
-	//size_t count = aggregatedProcList.size();
-	size_t count = (std::min)(topNSampleSize, aggregatedProcList.size());
+	size_t count = (std::max)(static_cast<size_t>(0), aggregatedProcList.size());
+	//size_t count = (std::min)(topNSampleSize, aggregatedProcList.size());
 
 	SnapshotProcData snapshot;
 	snapshot.timestamp = std::chrono::system_clock::now();

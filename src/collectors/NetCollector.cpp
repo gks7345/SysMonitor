@@ -29,7 +29,7 @@ double NetCollector::getSentKbps() const {
 		&count,
 		nullptr);
 
-	if (count == 0 || bufSize) return 0.0;
+	if (count == 0 || bufSize == 0) return 0.0;
 
 	std::vector<char> buf(bufSize);
 
@@ -65,7 +65,7 @@ double NetCollector::getRecvKbps() const {
 		&count,
 		nullptr);
 
-	if (count == 0 || bufSize) return 0.0;
+	if (count == 0 || bufSize == 0) return 0.0;
 
 	std::vector<char> buf(bufSize);
 

@@ -134,14 +134,14 @@ private:
 
     std::unordered_map<DWORD, ProcEntry> buildProcTree();
 
-
+    void aggregateToParents(std::unordered_map<DWORD, ProcEntry>& tree);
 
 public:
     ProcessCollector(int topN = 10);
     ~ProcessCollector();
 
     void collectProc();
-    void aggregateToParents();
+
 
     void setCriterion(SortCriterion setCriterion);
     void sortProc();

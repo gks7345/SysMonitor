@@ -31,6 +31,8 @@ private:
             tp.time_since_epoch()).count();
     }
 
+    static double safeDouble(double v);
+
 public:
     DataStore(size_t procCap = 120, size_t sysCap = 120);
     ~DataStore() = default;
@@ -46,5 +48,6 @@ public:
 
     void checkDailyRotation();
 
+    duckdb::Connection& getConnection();
     size_t getProcsSize() const { return procsData.getSize(); }
 };
