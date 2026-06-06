@@ -1,15 +1,15 @@
 #pragma once
-#include <iostream>
 #include <string>
 #include <vector>
 #include <chrono>
+#include <cstdint> 
 
 // ---------------------------------------------------------------------------
 // 시스템
 // ---------------------------------------------------------------------------
 struct SnapshotSysCpu {
 	double cpuTotal = 0.0;
-	double cpuFredGHz = 0.0;
+	double cpuFreqGHz = 0.0;
 
 	double cpuUser = 0.0;
 	double cpuKernel = 0.0;
@@ -51,7 +51,7 @@ struct SnapshotSysData {
 // 프로세스
 // ---------------------------------------------------------------------------
 struct SnapshotProc {
-	int			procID = 0;
+	uint32_t	procID = 0;
 	std::string procName;
 
 	double		procCpuUsage = 0.0;
@@ -68,7 +68,7 @@ struct SnapshotProc {
 
 struct SnapshotProcData {
 	std::chrono::system_clock::time_point	timestamp;
-	int										topN;
+	int										topN = 0;
 	std::string								sortCriterion;
 	std::vector<SnapshotProc>				procs;
 };

@@ -72,7 +72,7 @@ SnapshotSysData SystemCollector::makeSnapshot() {
 	const auto& net_ = net;
 
 	snapshot.cpu.cpuTotal = cpu_.getTotalUsage();
-	snapshot.cpu.cpuFredGHz = cpu_.getCpuFreqGHz();
+	snapshot.cpu.cpuFreqGHz = cpu_.getCpuFreqGHz();
 	snapshot.cpu.cpuQueueLength = cpu_.getCpuQueueLength();
 	snapshot.cpu.cpuUser = cpu_.getCpuUser();
 	snapshot.cpu.cpuKernel = cpu_.getCpuKernel();
