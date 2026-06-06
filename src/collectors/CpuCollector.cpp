@@ -1,66 +1,101 @@
 #include "collectors/CpuCollector.h"
 
+
 void CpuCollector::init(PDH_HQUERY& query) {
-	PdhAddEnglishCounter(	//¿¸√º ªÁøÎ∑¸
+	PDH_STATUS cpuStatus = PdhAddEnglishCounterW(	//Ï†ÑÏ≤¥ ÏÇ¨Ïö©Î•†
 		query,
-		"\\Processor Information(_Total)\\% Processor Utility",
+		L"\\Processor Information(_Total)\\% Processor Utility",
 		0,
 		&cpuTotal
 	);
-	PdhAddEnglishCounter(	//«ˆ¿Á ≈¨∑∞ º”µµ
-		query,
-		"\\Processor Information(_Total)\\Actual Frequency",
-		0,
-		&cpuFredMHz
-	);
+	if (cpuStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", cpuStatus);
+	}
 
-	PdhAddEnglishCounter(	// Processor Queue Length ∫¥∏Ò ∆«¥‹øÎ ƒ⁄æÓ ºˆ ¿ÃªÛ -> ∫¥∏Ò ∞°¥…
+	PDH_STATUS fredStatus = PdhAddEnglishCounterW(	//ÌòÑÏû¨ ÌÅ¥Îü≠ ÏÜçÎèÑ
 		query,
-		"\\System\\Processor Queue Length",
+		L"\\Processor Information(_Total)\\Actual Frequency",
+		0,
+		&cpuFreqMHz
+	);
+	if (fredStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", fredStatus);
+	}
+
+	// Processor Queue Length Î≥ëÎ™© ÌåêÎã®Ïö© ÏΩîÏñ¥ Ïàò Ïù¥ÏÉÅ -> Î≥ëÎ™© Í∞ÄÎä•
+	PDH_STATUS queueLengthStatus = PdhAddEnglishCounterW(
+		query,
+		L"\\System\\Processor Queue Length",
 		0,
 		&cpuQueueLength
 	);
-	//CPU ªÁøÎ º∫∞› ∫–ºÆ
-	//User ≥Ù¿Ω -> «¡∑ŒººΩ∫ ø¯¿Œ
-	//Kernel ≥Ù¿Ω -> OS/µÂ∂Û¿Ãπˆ / I/O πÆ¡¶
-	PdhAddEnglishCounter(
+	if (queueLengthStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", queueLengthStatus);
+	}
+
+	//CPU ÏÇ¨Ïö© ÏÑ±Í≤© Î∂ÑÏÑù
+	//User ÎÜíÏùå -> ÌîÑÎ°úÏÑ∏Ïä§ ÏõêÏù∏
+	//Kernel ÎÜíÏùå -> OS/ÎìúÎùºÏù¥Î≤Ñ / I/O Î¨∏Ï†ú
+	PDH_STATUS userStatus = PdhAddEnglishCounterW(
 		query,
-		"\\Processor Information(_Total)\\% User Time",
+		L"\\Processor Information(_Total)\\% User Time",
 		0,
 		&cpuUser
 	);
+	if (userStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", userStatus);
+	}
 	//Kernel
-	PdhAddEnglishCounter(
+	PDH_STATUS kernelStatus = PdhAddEnglishCounterW(
 		query,
-		"\\Processor Information(_Total)\\% Privileged  Time",
+		L"\\Processor Information(_Total)\\% Privileged Time",
 		0,
 		&cpuKernel
 	);
+	if (kernelStatus != ERROR_SUCCESS) {
+		spdlog::error("Counter ERROR 0x{:X}", kernelStatus);
+	}
 }
 
-float CpuCollector::getTotalUsage() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuTotal, PDH_FMT_DOUBLE, NULL, &val);
-	return (float)val.doubleValue;
+double CpuCollector::getPdhDoubleValue(PDH_HCOUNTER counter) {
+	PDH_FMT_COUNTERVALUE val = {}; // Ï¥àÍ∏∞Ìôî
+
+	PDH_STATUS status = PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, NULL, &val);
+
+	if (status != ERROR_SUCCESS) {
+		spdlog::error("val Status ERROR 0x{:X}", status);
+		return 0.0;
+	}
+
+	if (val.CStatus != PDH_CSTATUS_VALID_DATA && val.CStatus != PDH_CSTATUS_NEW_DATA) {
+		spdlog::error("CStatus ERROR 0x{:X}", val.CStatus);
+		return 0.0;
+	}
+
+	return val.doubleValue;
 }
-float CpuCollector::getCpuFredGHz() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuFredMHz, PDH_FMT_DOUBLE, NULL, &val);
-	double cpuFredGHZ = val.doubleValue / 1000.0;
-	return (float)cpuFredGHZ;
+
+double CpuCollector::getTotalUsage() const {
+	return getPdhDoubleValue(cpuTotal);
 }
-float CpuCollector::getCpuQueueLength() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuQueueLength, PDH_FMT_DOUBLE, NULL, &val);
-	return (float)val.doubleValue;
+double CpuCollector::getCpuFreqGHz() const {
+	double val = getPdhDoubleValue(cpuFreqMHz);
+
+	if (val > 1'000'000'000)  // Hz (10Ïñµ Ïù¥ÏÉÅ)
+		return val / 1'000'000'000.0;
+	else if (val > 1'000'000) // KHz (100Îßå Ïù¥ÏÉÅ)
+		return val / 1'000'000.0;
+	else if (val > 100)       // MHz (100 Ïù¥ÏÉÅ)
+		return val / 1'000.0;
+	else                      // Ïù¥ÎØ∏ GHz (1~6 Î≤îÏúÑ)
+		return val;
 }
-float CpuCollector::getCpuUser() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuUser, PDH_FMT_DOUBLE, NULL, &val);
-	return (float)val.doubleValue;
+double CpuCollector::getCpuQueueLength() const {
+	return getPdhDoubleValue(cpuQueueLength);
 }
-float CpuCollector::getCpuKernel() const {
-	PDH_FMT_COUNTERVALUE val;
-	PdhGetFormattedCounterValue(cpuKernel, PDH_FMT_DOUBLE, NULL, &val);
-	return (float)val.doubleValue;
+double CpuCollector::getCpuUser() const {
+	return getPdhDoubleValue(cpuUser);
+}
+double CpuCollector::getCpuKernel() const {
+	return getPdhDoubleValue(cpuKernel);
 }

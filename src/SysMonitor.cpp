@@ -1,67 +1,79 @@
 ﻿// SysMonitor.cpp : 애플리케이션의 진입점을 정의합니다.
 //
-
 #include "SysMonitor.h"
-#include <chrono>
 
-using namespace std;
-
-std::string TimeToString(const std::chrono::system_clock::time_point& tp)
-{
-    std::time_t t = std::chrono::system_clock::to_time_t(tp);
-    std::tm tm{};
-
-#ifdef _WIN32
-    localtime_s(&tm, &t);   // Windows 안전 버전
-#else
-    localtime_r(&t, &tm);   // Linux
-#endif
-
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%H:%M:%S");
-    return oss.str();
-}
-
-void LogSystemSample(nlohmann::json& j) {
-    spdlog::info(
-        "CPU: {:.1f}% ({:.2f} GHz) | "
-        "MEM: {:.2f}/{:.0f} GB ({:.1f}%) Committed {:.2f}/{:.0f} GB ({:.1f}%)| "
-        "NET: Recv {:.2f} KB/s Sent {:.2f} KB/s | "
-        "DISK: R {:.2f} KB/s | W {:.2f} KB/s",
-
-        j["CPU"].value("Total",0.0),
-        j["CPU"].value("FredGHZ",0.0),
-
-        j["MEM"].value("UsedMB",0.0)/1024.0,
-        j["MEM"].value("TotalMB",0.0)/1024.0,
-        j["MEM"].value("UsedPercent", 0.0),
-        j["MEM"].value("committedGB",0.0),
-        j["MEM"].value("commitLimitGB",0.0),
-        j["MEM"].value("commitPercent",0.0),
-
-        j["NET"].value("netSentKB",0.0),
-        j["NET"].value("netRecvKB",0.0),
-
-        j["DISK"].value("diskReadKB",0.0),
-        j["DISK"].value("diskWriteKB",0.0)
-
-    );
-}
 
 int main()
-{	
-	SystemCollector sc;
-    int tick = 0;
+{
+    ULONGLONG bootTime = GetTickCount64();
+    DWORD delay = 1000 - (bootTime % 1000);
+    Sleep(delay);
 
-    while (true) {
+    SystemCollector sc;
+    ProcessCollector proc(Config::DEFAULT_TOP_N);
+    DataStore dataStore(Config::PROC_BUFFER_CAPACITY,
+        Config::SYS_BUFFER_CAPACITY);
+
+    int tick = 0;
+    auto lastFlush = std::chrono::steady_clock::now();
+    proc.setCriterion(SortCriterion::NET);
+
+    bool keep_running = true;
+    while (keep_running) {
+        auto loopStart = std::chrono::steady_clock::now();
+
+        //1초 주기 수집
         sc.collectMiddle();
-        if (tick % 4 == 0) {
+        proc.collectProc();
+
+
+        if (tick % Config::SLOW_COLLECT_INTERVAL == 0) {
+            //2초 주기 수집
             sc.collectSlow();
+            //proc.collectSlow();
         }
-        nlohmann::json sample = sc.snapshot();
-        LogSystemSample(sample);
+
+        sc.printToConsole();
+        printf("%s\n", std::string(Config::CONSOLE_WIDTH, '-').c_str());
+        //proc.aggregateToParents();
+        proc.sortProc();
+
+        proc.printToConsole();
+
+        SnapshotSysData sysSnap = sc.makeSnapshot();
+        SnapshotProcData procSnap = proc.makeSnapshot();
+        dataStore.pushSysData(sysSnap);
+        dataStore.pushProcsData(procSnap);
+        spdlog::info("ringbuffer size={}", dataStore.getProcsSize());
+
+        // 60초마다 DuckDB flush
+        if (tick > 0 && tick % Config::FLUSH_INTERVAL_TICKS == 0) {
+            dataStore.flushProcsToDB();
+            dataStore.flushSysToDB();
+        }
+
         tick++;
-        std::this_thread::sleep_for(1000ms);
+
+        // 1. 키보드 입력이 있었는지 루프를 멈추지 않고 확인
+        if (_kbhit()) {
+            char ch = _getch(); // 누른 키 값 가져오기
+            if (ch == 'q' || ch == 'Q') {
+                std::cout << "\n['q' key detected] SysMonitor Quit.\n";
+                keep_running = false;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
+
+    dataStore.flushProcsToDB();
+    dataStore.flushSysToDB();
+
+    std::string resultProc = dataStore.queryReport(
+        "SELECT * FROM proc_snapshot LIMIT 10");
+    printf("%s\n", resultProc.c_str());
+
+    std::string resultSys = dataStore.queryReport(
+        "SELECT * FROM sys_snapshot LIMIT 10");
+    printf("%s\n", resultSys.c_str());
 }

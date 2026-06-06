@@ -1,24 +1,28 @@
 #include "collectors/SystemCollector.h"
+#include <spdlog/spdlog.h>
 #pragma comment(lib, "pdh.lib")
 
+SystemCollector::SystemCollector() : queryMiddle(nullptr), querySlow(nullptr)
+{
+	PDH_STATUS statusMiddle = PdhOpenQuery(nullptr, 0, &queryMiddle);
+	if (statusMiddle != ERROR_SUCCESS) {
+		spdlog::error("SystemCollector: PdhOpenQuery(middle) ì‹¤íŒ¨ 0x{:X}", statusMiddle);
+	}
+	PDH_STATUS statusSlow = PdhOpenQuery(nullptr, 0, &querySlow);
+	if (statusSlow != ERROR_SUCCESS) {
+		spdlog::error("SystemCollector: PdhOpenQuery(slow) ì‹¤íŒ¨ 0x{:X}", statusSlow);
+	}
 
-SystemCollector::SystemCollector() {
-	PdhOpenQuery(NULL, 0, &queryMiddle);
-	PdhOpenQuery(NULL, 0, &querySlow);
 
-	ULONGLONG bootTime = GetTickCount64();
-	DWORD delay = 1000 - (bootTime % 1000);
-	Sleep(delay);
-	
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
-	
+
 	cpu.init(queryMiddle);
 	mem.init(queryMiddle);
 	net.init(queryMiddle);
 	disk.init(querySlow);
 
-	//ÃÊ±â ¼öÁý
+	//ì´ˆê¸° ìˆ˜ì§‘
 	PdhCollectQueryData(queryMiddle);
 	PdhCollectQueryData(querySlow);
 	Sleep(1000);
@@ -33,38 +37,60 @@ void SystemCollector::collectMiddle() {
 }
 void SystemCollector::collectSlow() {
 	PdhCollectQueryData(querySlow);
+	lastTime = std::chrono::system_clock::now();
 }
-nlohmann::json SystemCollector::snapshot() {
-	nlohmann::json snapshot;
-	snapshot["Timestamp"] = std::chrono::duration_cast<std::chrono::microseconds>(
-		std::chrono::system_clock::now().time_since_epoch()
-	).count();
-	snapshot["CPU"] = {
-		{"Total", cpu.getTotalUsage()},
-		{"FredGHZ", cpu.getCpuFredGHz()},
-		{"QueueLength", cpu.getCpuQueueLength()},
-		{"User", cpu.getCpuUser()},
-		{"Kernel", cpu.getCpuKernel()}
-	};
-	snapshot["MEM"] = {
-		{"TotalMB", mem.getMemTotalMB()},
-		{"AvailMB", mem.getAvailMemMB()},
-		{"UsedPercent", mem.getMemUsagedPercent()},
-		{"UsedMB", mem.getMemUsedMB()},
 
-		{"commitPercent", mem.getCommitMemPercent()},
-		{"committedGB", mem.getCommittedMemGB()},
-		{"commitLimitGB", mem.getCommitLimitGB()}
-	};
-	snapshot["NET"] = {
-		{"netSentKB", net.getSentKB()},
-		{"netRecvKB", net.getRecvKB()}
-	};
-	snapshot["DISK"] = {
-		{"diskReadKB", disk.getReadKB()},
-		{"diskWriteKB", disk.getWriteKB()}
-	};
+void SystemCollector::printToConsole() const {
+	printf("\n=== System ===\n");
+	printf(
+		"CPU : %2.1f%%  (%2.2f GHz) | "
+		"MEM : %2.1f / %2.1f GB (%2.1f%%) "
+		" Commit : %2.1f / %2.1f GB | "
+		"DISK : R %4.2f KB/s  W %4.2f KB/s | "
+		"NET : Recv %-12s  Send %-12s\n",
+		cpu.getTotalUsage(),
+		cpu.getCpuFreqGHz(),
+		mem.getMemUsedMB() / 1024.0,
+		mem.getMemTotalMB() / 1024.0,
+		mem.getMemUsagedPercent(),
+		mem.getCommittedMemGB(),
+		mem.getCommitLimitGB(),
+		disk.getReadKB(),
+		disk.getWriteKB(),
+		net.formatNetSpeed(net.getRecvKbps()).c_str(),
+		net.formatNetSpeed(net.getSentKbps()).c_str()
+	);
+}
 
+SnapshotSysData SystemCollector::makeSnapshot() {
+	SnapshotSysData snapshot;
+	snapshot.timestamp = std::chrono::system_clock::now();
+
+	const auto& cpu_ = cpu;
+	const auto& mem_ = mem;
+	const auto& disk_ = disk;
+	const auto& net_ = net;
+
+	snapshot.cpu.cpuTotal = cpu_.getTotalUsage();
+	snapshot.cpu.cpuFreqGHz = cpu_.getCpuFreqGHz();
+	snapshot.cpu.cpuQueueLength = cpu_.getCpuQueueLength();
+	snapshot.cpu.cpuUser = cpu_.getCpuUser();
+	snapshot.cpu.cpuKernel = cpu_.getCpuKernel();
+
+	snapshot.mem.memTotalMB = mem_.getMemTotalMB();
+	snapshot.mem.memAvailMB = mem_.getAvailMemMB();
+	snapshot.mem.memUsagePercent = mem_.getMemUsagedPercent();
+	snapshot.mem.memUsedMB = mem_.getMemUsedMB();
+	snapshot.mem.commitMemPercent = mem_.getCommitMemPercent();
+	snapshot.mem.committedMemGB = mem_.getCommittedMemGB();
+	snapshot.mem.commitLimitGB = mem_.getCommitLimitGB();
+
+	snapshot.disk.lastTime = lastTime;
+	snapshot.disk.diskReadKBs = disk_.getReadKB();
+	snapshot.disk.diskWriteKBs = disk_.getWriteKB();
+
+	snapshot.net.netRecvKbps = net_.getRecvKbps();
+	snapshot.net.netSentKbps = net_.getSentKbps();
 	return snapshot;
 }
 

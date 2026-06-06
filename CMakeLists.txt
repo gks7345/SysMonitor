@@ -9,6 +9,7 @@ if (POLICY CMP0141)
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
+
 #프로젝트 정보
 project ("SysMonitor" LANGUAGES CXX)
 
@@ -19,12 +20,18 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/gabime/spdlog
 	GIT_TAG v1.x
 )
+
 FetchContent_Declare(
-	json
-	GIT_REPOSITORY https://github.com/nlohmann/json
-	GIT_TAG v3.12.0
+	duckdb
+	GIT_REPOSITORY https://github.com/duckdb/duckdb
+	GIT_TAG v1.1.3
 )
 
-FetchContent_MakeAvailable(spdlog json)
+# DuckDB 빌드 옵션 설정
+set(BUILD_UNITTESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHELL     OFF CACHE BOOL "" FORCE)
+
+
+FetchContent_MakeAvailable(spdlog duckdb)
 # 하위 프로젝트를 포함합니다.
 add_subdirectory ("src")

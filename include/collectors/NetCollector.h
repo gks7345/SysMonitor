@@ -1,7 +1,12 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
+#include <PdhMsg.h>
 #include <iostream>
+#include <string>
+#include <format>
+#include <vector>
+#include <spdlog/spdlog.h>
 
 class NetCollector {
 private:
@@ -10,7 +15,8 @@ private:
 
 public:
 	void init(PDH_HQUERY& query);
-	float getSentKB() const;
-	float getRecvKB() const;
+	double getSentKbps() const;
+	double getRecvKbps() const;
+	static std::string formatNetSpeed(double kbps);
 };
 

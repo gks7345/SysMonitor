@@ -1,17 +1,19 @@
 #pragma once
 #include <Windows.h>
 #include <Pdh.h>
-#include <nlohmann/json.hpp>
+#include <chrono>
+
 #include "collectors/CpuCollector.h"
 #include "collectors/MemCollector.h"
 #include "collectors/DiskCollector.h"
 #include "collectors/NetCollector.h"
+#include "models/SnapshotData.h"
 
 class SystemCollector {
 private:
-	// 1√  ∞£∞›
+	// 1Ï¥à Í∞ÑÍ≤©
 	PDH_HQUERY queryMiddle;
-	//2√  ∞£∞›
+	//2Ï¥à Í∞ÑÍ≤©
 	PDH_HQUERY querySlow;
 
 	CpuCollector cpu;
@@ -19,11 +21,13 @@ private:
 	NetCollector net;
 	DiskCollector disk;
 
+	std::chrono::system_clock::time_point lastTime;
 public:
 	SystemCollector();
 	~SystemCollector();
-	void saveSystemScan();
 	void collectMiddle();
 	void collectSlow();
-	nlohmann::json snapshot();
+
+	SnapshotSysData makeSnapshot();
+	void printToConsole() const;
 };
