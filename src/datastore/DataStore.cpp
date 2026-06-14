@@ -2,9 +2,10 @@
 #include "datastore/DataStore.h"
 #include <spdlog/spdlog.h>
 
-DataStore::DataStore(size_t procCap, size_t sysCap)
+DataStore::DataStore(size_t procCap, size_t sysCap, size_t targetCap)
     : procsData(procCap)
     , sysData(sysCap)
+    , targetData(targetCap)
     , currentDbPath(makeDailyDbPath())
     , db(currentDbPath)  // 날짜 기반 파일명
     , con(db)
@@ -23,10 +24,10 @@ std::string DataStore::makeDailyDbPath() {
     localtime_s(&tm, &time);
 
     char buf[64];
-    strftime(buf, sizeof(buf), "reports/SysMonitor_%Y-%m-%d.db", &tm);
+    strftime(buf, sizeof(buf), "reports/data/SysMonitor_data_%Y-%m-%d.db", &tm);
 
     // reports 폴더 생성
-    std::filesystem::create_directories("reports");
+    std::filesystem::create_directories("reports/data");
 
 
     return std::string(buf);
@@ -51,6 +52,30 @@ void DataStore::checkDailyRotation() {
 }
 
 void DataStore::initDB() {
+    // 시스템 테이블 — SnapShotSysData 구조 반영
+    con.Query(R"(
+        CREATE TABLE IF NOT EXISTS sys_snapshot (
+            timestamp           BIGINT,
+            diskTimestamp       BIGINT,
+            cpuTotal            DOUBLE,
+            cpuFreqGHz          DOUBLE,
+            cpuUser             DOUBLE,
+            cpuKernel           DOUBLE,
+            cpuQueueLength      DOUBLE,
+            memTotalMB          DOUBLE,
+            memUsagePercent     DOUBLE,
+            memUsedMB           DOUBLE,
+            memAvailMB          DOUBLE,
+            commitMemPercent    DOUBLE,
+            committedMemGB      DOUBLE,
+            commitLimitGB       DOUBLE,
+            diskReadKBs         DOUBLE,
+            diskWriteKBs        DOUBLE,
+            netSentKbps         DOUBLE,
+            netRecvKbps         DOUBLE
+        )
+    )");
+
     // 프로세스 테이블
     con.Query(R"(
         CREATE TABLE IF NOT EXISTS proc_snapshot (
@@ -69,31 +94,69 @@ void DataStore::initDB() {
         )
     )");
 
-    // 시스템 테이블 — SnapShotSysData 구조 반영
+    // 타겟 프로세스 테이블
+    // 메인 + 합계 테이블
     con.Query(R"(
-        CREATE TABLE IF NOT EXISTS sys_snapshot (
+        CREATE TABLE IF NOT EXISTS target_snapshot (
             timestamp           BIGINT,
-            diskTimestamp       BIGINT,
+            targetName          VARCHAR,
+            exePath             VARCHAR,
+            pid                 INTEGER,
+            cpuUsage            DOUBLE,
+            memoryMB            DOUBLE,
+            privateMemoryMB     DOUBLE,
+            virtualMemoryMB     DOUBLE,
+            diskReadMBs         DOUBLE,
+            diskWriteMBs        DOUBLE,
+            netSentMbps         DOUBLE,
+            netRecvMbps         DOUBLE,
+            threadCount         INTEGER,
+            handleCount         INTEGER,
+            gdiObjectCount      INTEGER,
+            pageFaultRate       DOUBLE,
+            elapsedSec          DOUBLE,
+            totalCpuUsage       DOUBLE,
+            totalMemoryMB       DOUBLE,
+            totalDiskMBs        DOUBLE,
+            totalNetMbps        DOUBLE,
+            totalThreadCount    INTEGER,
+            totalHandleCount    INTEGER,
+            totalProcessCount   INTEGER
+        )
+    )");
 
-            cpuTotal            DOUBLE,
-            cpuFreqGHz          DOUBLE,
-            cpuUser             DOUBLE,
-            cpuKernel           DOUBLE,
-            cpuQueueLength      DOUBLE,
+    // 자식 프로세스 테이블
+    con.Query(R"(
+        CREATE TABLE IF NOT EXISTS target_child_snapshot (
+            timestamp           BIGINT,
+            targetName          VARCHAR,
+            pid                 INTEGER,
+            processName         VARCHAR,
+            cpuUsage            DOUBLE,
+            memoryMB            DOUBLE,
+            privateMemoryMB     DOUBLE,
+            virtualMemoryMB     DOUBLE,
+            diskReadMBs         DOUBLE,
+            diskWriteMBs        DOUBLE,
+            netSentMbps         DOUBLE,
+            netRecvMbps         DOUBLE,
+            threadCount         INTEGER,
+            handleCount         INTEGER,
+            gdiObjectCount      INTEGER,
+            pageFaultRate       DOUBLE
+        )
+    )");
 
-            memTotalMB          DOUBLE,
-            memUsagePercent     DOUBLE,
-            memUsedMB           DOUBLE,
-            memAvailMB          DOUBLE,
-            commitMemPercent    DOUBLE,
-            committedMemGB      DOUBLE,
-            commitLimitGB       DOUBLE,
-
-            diskReadKBs         DOUBLE,
-            diskWriteKBs        DOUBLE,
-
-            netSentKbps         DOUBLE,
-            netRecvKbps         DOUBLE
+    // 네트워크 연결 테이블
+    con.Query(R"(
+        CREATE TABLE IF NOT EXISTS target_connection_snapshot (
+            timestamp           BIGINT,
+            targetName          VARCHAR,
+            pid                 INTEGER,
+            protocol            VARCHAR,
+            localAddr           VARCHAR,
+            remoteAddr          VARCHAR,
+            state               VARCHAR
         )
     )");
 }
@@ -106,6 +169,11 @@ void DataStore::pushProcsData(const SnapshotProcData& data) {
 void DataStore::pushSysData(const SnapshotSysData& data) {
     std::lock_guard<std::mutex> lock(sysMtx);
     sysData.enQueue(data);
+}
+
+void DataStore::pushTargetData(const SnapshotTargetData& data) {
+    std::lock_guard<std::mutex> lock(targetMtx);
+    targetData.enQueue(data);
 }
 
 double DataStore::safeDouble(double v) {
@@ -150,6 +218,7 @@ void DataStore::flushProcsToDB() {
                 appender.Append(safeDouble(p.procNetSentMbps));
                 appender.Append(safeDouble(p.procNetRecvMbps));
                 appender.EndRow();
+                rowCount++;
             }
         }
         appender.Close();
@@ -221,6 +290,111 @@ void DataStore::flushSysToDB() {
         spdlog::error("flushSysToDB 예외: {}", e.what());
     }
 }
+
+void DataStore::flushTargetToDB() {
+    std::vector<SnapshotTargetData> items;
+    {
+        std::lock_guard<std::mutex> lock(targetMtx);
+        items = targetData.deQueue();
+    }
+    if (items.empty()) return;
+
+    std::lock_guard<std::mutex> dbLock(dbMtx);
+    try {
+        duckdb::Appender mainApp(con, "target_snapshot");
+        duckdb::Appender childApp(con, "target_child_snapshot");
+        duckdb::Appender connApp(con, "target_connection_snapshot");
+        for (const auto& snap : items) {
+            int64_t ts = toTimestamp(snap.timestamp);
+            for (const auto& t : snap.targets) {
+                mainApp.BeginRow();
+                mainApp.Append(ts);
+                mainApp.Append(duckdb::string_t(t.targetName));
+                mainApp.Append(duckdb::string_t(t.exePath));
+                mainApp.Append(static_cast<int32_t>(t.pid));
+                mainApp.Append(safeDouble(t.cpuUsage));
+                mainApp.Append(safeDouble(t.memoryMB));
+                mainApp.Append(safeDouble(t.privateMemoryMB));
+                mainApp.Append(safeDouble(t.virtualMemoryMB));
+                mainApp.Append(safeDouble(t.diskReadMBs));
+                mainApp.Append(safeDouble(t.diskWriteMBs));
+                mainApp.Append(safeDouble(t.netSentMbps));
+                mainApp.Append(safeDouble(t.netRecvMbps));
+                mainApp.Append(static_cast<int32_t>(t.threadCount));
+                mainApp.Append(static_cast<int32_t>(t.handleCount));
+                mainApp.Append(static_cast<int32_t>(t.gdiObjectCount));
+                mainApp.Append(safeDouble(t.pageFaultRate));
+                mainApp.Append(safeDouble(t.elapsedSec));
+                mainApp.Append(safeDouble(t.totalCpuUsage));
+                mainApp.Append(safeDouble(t.totalMemoryMB));
+                mainApp.Append(safeDouble(t.totalDiskMBs));
+                mainApp.Append(safeDouble(t.totalNetMbps));
+                mainApp.Append(static_cast<int32_t>(t.totalThreadCount));
+                mainApp.Append(static_cast<int32_t>(t.totalHandleCount));
+                mainApp.Append(static_cast<int32_t>(t.totalProcessCount));
+                mainApp.EndRow();
+
+                // 메인 네트워크 연결
+                for (const auto& conn : t.connections) {
+                    connApp.BeginRow();
+                    connApp.Append(ts);
+                    connApp.Append(duckdb::string_t(t.targetName));
+                    connApp.Append(static_cast<int32_t>(t.pid));
+                    connApp.Append(duckdb::string_t(conn.protocol));
+                    connApp.Append(duckdb::string_t(conn.localAddr));
+                    connApp.Append(duckdb::string_t(conn.remoteAddr));
+                    connApp.Append(duckdb::string_t(conn.state));
+                    connApp.EndRow();
+                }
+
+                // 자식 프로세스
+                for (const auto& c : t.children) {
+                    childApp.BeginRow();
+                    childApp.Append(ts);
+                    childApp.Append(duckdb::string_t(t.targetName));
+                    childApp.Append(static_cast<int32_t>(c.pid));
+                    childApp.Append(duckdb::string_t(c.processName));
+                    childApp.Append(safeDouble(c.cpuUsage));
+                    childApp.Append(safeDouble(c.memoryMB));
+                    childApp.Append(safeDouble(c.privateMemoryMB));
+                    childApp.Append(safeDouble(c.virtualMemoryMB));
+                    childApp.Append(safeDouble(c.diskReadMBs));
+                    childApp.Append(safeDouble(c.diskWriteMBs));
+                    childApp.Append(safeDouble(c.netSentMbps));
+                    childApp.Append(safeDouble(c.netRecvMbps));
+                    childApp.Append(static_cast<int32_t>(c.threadCount));
+                    childApp.Append(static_cast<int32_t>(c.handleCount));
+                    childApp.Append(static_cast<int32_t>(c.gdiObjectCount));
+                    childApp.Append(safeDouble(c.pageFaultRate));
+                    childApp.EndRow();
+
+                    // 자식 네트워크 연결
+                    for (const auto& conn : c.connections) {
+                        connApp.BeginRow();
+                        connApp.Append(ts);
+                        connApp.Append(duckdb::string_t(t.targetName));
+                        connApp.Append(static_cast<int32_t>(c.pid));
+                        connApp.Append(duckdb::string_t(conn.protocol));
+                        connApp.Append(duckdb::string_t(conn.localAddr));
+                        connApp.Append(duckdb::string_t(conn.remoteAddr));
+                        connApp.Append(duckdb::string_t(conn.state));
+                        connApp.EndRow();
+                    }
+                }
+            }
+        }
+
+        mainApp.Close();
+        childApp.Close();
+        connApp.Close();
+        con.Query("CHECKPOINT");
+        spdlog::info("DataStore: target flush clear ({} snapshot)", items.size());
+    }
+    catch (const std::exception& e) {
+        spdlog::error("flushTargetToDB exception: {}", e.what());
+    }
+}
+
 
 std::string DataStore::queryReport(const std::string& sql) {
     std::lock_guard<std::mutex> lock(dbMtx);

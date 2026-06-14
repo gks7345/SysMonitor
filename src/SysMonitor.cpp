@@ -11,20 +11,75 @@ int main()
 
     SystemCollector sc;
     ProcessCollector proc(Config::DEFAULT_TOP_N);
-    DataStore dataStore(Config::PROC_BUFFER_CAPACITY,
-        Config::SYS_BUFFER_CAPACITY);
+    TargetCollector target(proc.getEtwNet());
+    SummaryStore summary;
+    DataStore dataStore(Config::PROC_BUFFER_CAPACITY, Config::SYS_BUFFER_CAPACITY);
+    SessionReport report(dataStore.getConnection());
+
+    target.registerTarget("whale");
+    target.registerTarget("chrome");
+
+    // DataStore에서 마지막 세션 주입
+    for (const auto& name : target.getRegisteredNames()) {
+        auto last = summary.getTargetLastSession(name);
+        /*spdlog::info("'{}' hasData={} date='{}' elapsed={}",
+            name, last.hasData(), last.date,
+            last.totalElapsedSec);*/
+        target.updateLastSession(name, last);
+    }
 
     int tick = 0;
     auto lastFlush = std::chrono::steady_clock::now();
-    proc.setCriterion(SortCriterion::NET);
+    proc.setCriterion(SortCriterion::CPU);
 
     bool keep_running = true;
+
     while (keep_running) {
         auto loopStart = std::chrono::steady_clock::now();
 
         //1초 주기 수집
         sc.collectMiddle();
         proc.collectProc();
+        target.collect();
+
+        for (const auto& name : target.getPendingDeactivated()) {
+            dataStore.flushTargetToDB();
+
+            summary.flushTargetSummaries(report.analyzeTargets());
+            auto last = summary.getTargetLastSession(name);
+            target.updateLastSession(name, last);
+        }
+        target.clearPendingDeactivated();
+        //for (const auto)
+    //    auto last = summary.getTargetLastSession(name);
+    //    /*spdlog::info("'{}' hasData={} date='{}' elapsed={}",
+    //        name, last.hasData(), last.date,
+    //        last.totalElapsedSec);*/
+    //    target.updateLastSession(name, last);
+    //}
+    //target.clearPendingDeactivated();
+
+    //// 종료된 타겟 처리 — DB flush 후 안전하게 처리
+    //// pending 처리에서 분리
+    //for (const auto& name : target.getPendingDeactivated()) {
+    //    dataStore.flushTargetToDB();
+
+    //    SessionReport report(dataStore.getConnection());
+    //    auto targets = report.analyzeTargets();
+
+    //    for (const auto& t : targets) {
+    //        if (t.targetName == name) {
+    //            summary.saveTargetSummaries({ t });  // mtx 잠금 → 해제
+    //            break;
+    //        }
+    //    }
+
+    //    // saveTargetSummaries 완전히 끝난 후 별도로 호출
+    //    auto last = summary.getTargetLastSession(name);  // mtx 잠금 → 해제
+    //    target.updateLastSession(name, last);
+    //    spdlog::info("Target '{}' summary saved", name);
+    //}
+    //target.clearPendingDeactivated();
 
 
         if (tick % Config::SLOW_COLLECT_INTERVAL == 0) {
@@ -37,19 +92,24 @@ int main()
         printf("%s\n", std::string(Config::CONSOLE_WIDTH, '-').c_str());
         //proc.aggregateToParents();
         proc.sortProc();
-
         proc.printToConsole();
+
+        target.printToConsole();
 
         SnapshotSysData sysSnap = sc.makeSnapshot();
         SnapshotProcData procSnap = proc.makeSnapshot();
+        SnapshotTargetData targetSnap = target.getSnapshot();
         dataStore.pushSysData(sysSnap);
         dataStore.pushProcsData(procSnap);
+        dataStore.pushTargetData(targetSnap);
         spdlog::info("ringbuffer size={}", dataStore.getProcsSize());
 
         // 60초마다 DuckDB flush
         if (tick > 0 && tick % Config::FLUSH_INTERVAL_TICKS == 0) {
             dataStore.flushProcsToDB();
             dataStore.flushSysToDB();
+            dataStore.flushTargetToDB();
+            summary.flushTargetSummaries(report.analyzeTargets());
         }
 
         tick++;
@@ -68,12 +128,28 @@ int main()
 
     dataStore.flushProcsToDB();
     dataStore.flushSysToDB();
+    dataStore.flushTargetToDB();
 
-    std::string resultProc = dataStore.queryReport(
+    /*std::string resultProc = dataStore.queryReport(
         "SELECT * FROM proc_snapshot LIMIT 10");
     printf("%s\n", resultProc.c_str());
 
     std::string resultSys = dataStore.queryReport(
         "SELECT * FROM sys_snapshot LIMIT 10");
     printf("%s\n", resultSys.c_str());
+
+    std::string resultTarget = dataStore.queryReport(
+        "SELECT * FROM target_snapshot JOIN target_child_snapshot ON target_snapshot.timestamp = target_child_snapshot.timestamp LIMIT 10");
+    printf("%s\n", resultTarget.c_str());*/
+
+    // SessionReport 분석 + 출력
+    //SessionReport report(dataStore.getConnection());
+
+    summary.flushProcSummaries(report.analyzeProcs());
+    summary.flushSysSummary(report.analyzeSys());
+    summary.flushTargetSummaries(report.analyzeTargets());
+    std::string resultTarget = summary.queryReport(
+        "SELECT * FROM target_summary LIMIT 10");
+    printf("%s\n", resultTarget.c_str());
+    report.printReport();
 }

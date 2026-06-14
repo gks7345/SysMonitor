@@ -5,7 +5,7 @@
 # 이 프로젝트의 실행 파일에 소스를 추가합니다.
 add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "collectors/CpuCollector.cpp" "collectors/MemCollector.cpp" "collectors/NetCollector.cpp" "collectors/DiskCollector.cpp"
 							  "collectors/ProcessCollector.cpp" "collectors/ETWNetwork.cpp" 
-							 "datastore/DataStore.cpp"  )
+							 "datastore/DataStore.cpp"   "analysis/SessionReport.cpp" "collectors/TargetCollector.cpp" "datastore/SummaryStore.cpp")
 target_include_directories(SysMonitor PRIVATE "../include")
 
 target_compile_definitions(SysMonitor PRIVATE

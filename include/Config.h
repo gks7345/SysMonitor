@@ -16,5 +16,7 @@ namespace Config {
     constexpr int DEFAULT_TOP_N = 10;
 
     // 수집 주기
-    constexpr int SLOW_COLLECT_INTERVAL = 2;      // 2초마다 collectSlow
+    constexpr int SLOW_COLLECT_INTERVAL = 2.0;      // 2초마다 collectSlow
+
+    constexpr int MIDDLE_COLLECT_INTERVAL = 1.0;  // 수집 주기 (초)
 }

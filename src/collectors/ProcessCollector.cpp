@@ -3,7 +3,7 @@
 #pragma comment(lib, "pdh.lib")
 
 static const char* SYSTEM_NAMES[] = {
-	"_Total", "Idle", "System", "smss", "csrss",
+	"_Total", "Idle", "System", "smss", "csrss", "[System Process]",
 	"wininit", "winlogon", "services", "lsass",
 	"fontdrvhost", "dwm", "Memory Compression", nullptr
 };
@@ -21,8 +21,10 @@ ProcessCollector::ProcessCollector(int topN) : topN(topN), currentCriterion(Sort
 		spdlog::error("ProcessCollector: PdhOpenQuery(middle) Error 0x{:X}", statusMiddle);
 	}
 
-	initInfo(queryMiddle);
+	cores = std::thread::hardware_concurrency();
+	if (cores == 0) cores = 1;
 
+	initInfo(queryMiddle);
 
 	//초기 수집
 	PdhCollectQueryData(queryMiddle);
@@ -32,8 +34,6 @@ ProcessCollector::ProcessCollector(int topN) : topN(topN), currentCriterion(Sort
 	}
 
 	lastTime = std::chrono::steady_clock::now();
-
-	Sleep(1000);
 }
 ProcessCollector::~ProcessCollector() {
 	PdhCloseQuery(queryMiddle);
@@ -174,8 +174,6 @@ void ProcessCollector::collectProc() {
 		pidItemCount, cpuItemCount, memItemCount,
 		priMemItemCount, diskRCounter, diskWCounter });
 
-	unsigned int cores = std::thread::hardware_concurrency();
-	if (cores == 0) cores = 1;
 
 	for (DWORD i = 0; i < safeCount; ++i) {
 		DWORD pid = static_cast<DWORD>(pidItems[i].FmtValue.doubleValue);

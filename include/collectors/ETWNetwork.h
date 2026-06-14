@@ -45,6 +45,10 @@ struct NetEventLayout {
 struct NetAccumEntry {
     std::atomic<ULONGLONG> sentBytes{ 0 };
     std::atomic<ULONGLONG> recvBytes{ 0 };
+
+    // TargetCollector 전용 독립 누적값
+    std::atomic<ULONGLONG> targetSentBytes{ 0 };
+    std::atomic<ULONGLONG> targetRecvBytes{ 0 };
 };
 
 struct NetMbps {
@@ -61,6 +65,7 @@ public:
     void    stop();
     bool    isRunning() const { return running.load(); }
     NetMbps getAndReset(DWORD pid, double elapsedSec);
+    NetMbps getAndResetForTarget(DWORD pid, double elapsedSec);
 
     // 죽은 프로세스 accumulator에서 제거
     void retainOnlyPids(const std::unordered_set<DWORD>& alivePids);
