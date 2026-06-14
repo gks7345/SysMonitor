@@ -12,7 +12,7 @@ void CpuCollector::init(PDH_HQUERY& query) {
 		spdlog::error("Counter ERROR 0x{:X}", cpuStatus);
 	}
 
-	PDH_STATUS fredStatus = PdhAddEnglishCounterW(	//현재 클럭 속도
+	PDH_STATUS fredStatus = PdhAddEnglishCounterW(	// 클럭 속도
 		query,
 		L"\\Processor Information(_Total)\\Actual Frequency",
 		0,
@@ -21,6 +21,8 @@ void CpuCollector::init(PDH_HQUERY& query) {
 	if (fredStatus != ERROR_SUCCESS) {
 		spdlog::error("Counter ERROR 0x{:X}", fredStatus);
 	}
+
+
 
 	// Processor Queue Length 병목 판단용 코어 수 이상 -> 병목 가능
 	PDH_STATUS queueLengthStatus = PdhAddEnglishCounterW(

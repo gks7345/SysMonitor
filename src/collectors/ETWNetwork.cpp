@@ -310,9 +310,16 @@ VOID WINAPI ETWNetwork::onEvent(PEVENT_RECORD pEvent) {
 
     auto& entry = instance->getOrCreateEntry(pid);
     if (isSend)
+    {
         entry.sentBytes.fetch_add(bytes, std::memory_order_relaxed);
+        entry.targetSentBytes.fetch_add(bytes, std::memory_order_relaxed);
+    }
     else
+    {
         entry.recvBytes.fetch_add(bytes, std::memory_order_relaxed);
+        entry.targetRecvBytes.fetch_add(bytes, std::memory_order_relaxed);
+    }
+
 }
 
 NetAccumEntry& ETWNetwork::getOrCreateEntry(DWORD pid) {
@@ -335,9 +342,27 @@ NetMbps ETWNetwork::getAndReset(DWORD pid, double elapsedSec) {
     ULONGLONG s = it->second->sentBytes.exchange(0, std::memory_order_relaxed);
     ULONGLONG r = it->second->recvBytes.exchange(0, std::memory_order_relaxed);
 
-
-
     // bytes → Mbps (1 Mbps = 125,000 bytes/sec)
+    constexpr double BYTES_TO_MBPS = 8.0 / 1'000'000.0;
+    result.sentMbps = static_cast<double>(s) / elapsedSec * BYTES_TO_MBPS;
+    result.recvMbps = static_cast<double>(r) / elapsedSec * BYTES_TO_MBPS;
+    return result;
+}
+
+NetMbps ETWNetwork::getAndResetForTarget(DWORD pid, double elapsedSec) {
+    NetMbps result;
+    if (elapsedSec <= 0.0) return result;
+
+    std::lock_guard<std::mutex> lock(accumMtx);
+    auto it = accumulator.find(pid);
+    if (it == accumulator.end()) return {};
+
+    // 별도 카운터에서 읽고 리셋
+    ULONGLONG s = it->second->targetSentBytes.exchange(
+        0, std::memory_order_relaxed);
+    ULONGLONG r = it->second->targetRecvBytes.exchange(
+        0, std::memory_order_relaxed);
+
     constexpr double BYTES_TO_MBPS = 8.0 / 1'000'000.0;
     result.sentMbps = static_cast<double>(s) / elapsedSec * BYTES_TO_MBPS;
     result.recvMbps = static_cast<double>(r) / elapsedSec * BYTES_TO_MBPS;

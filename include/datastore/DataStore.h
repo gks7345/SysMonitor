@@ -1,15 +1,16 @@
-// DataStore.h
+Ôªø// DataStore.h
 #pragma once
 #include <string>
 #include <filesystem>
 #include "datastore/RingBuffer.h"
 #include "duckdb.hpp"
-#include "models/SnapShotData.h"
+#include "models/SnapshotData.h"
 
 class DataStore {
 private:
     RingBuffer<SnapshotProcData> procsData;
     RingBuffer<SnapshotSysData>  sysData;
+    RingBuffer<SnapshotTargetData>  targetData;
 
 
     static std::string makeDailyDbPath();
@@ -20,11 +21,12 @@ private:
 
     std::mutex procMtx;
     std::mutex sysMtx;
+    std::mutex targetMtx;
     std::mutex dbMtx;
 
     void initDB();
 
-    // timestamp ∫Ø»Ø «Ô∆€ (chrono °Ê microseconds)
+    // timestamp Î≥ÄÌôò Ìó¨Ìçº (chrono ‚Üí microseconds)
     static int64_t toTimestamp(
         const std::chrono::system_clock::time_point& tp) {
         return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -34,14 +36,19 @@ private:
     static double safeDouble(double v);
 
 public:
-    DataStore(size_t procCap = 120, size_t sysCap = 120);
+    DataStore(size_t procCap = 120, size_t sysCap = 120, size_t targetCap = 120);
     ~DataStore() = default;
 
     void pushProcsData(const SnapshotProcData& data);
     void pushSysData(const SnapshotSysData& data);
+    void pushTargetData(const SnapshotTargetData& data);
+
 
     void flushProcsToDB();
     void flushSysToDB();
+    void flushTargetToDB();
+
+    std::string getDbPath() const { return currentDbPath; }
 
     std::string queryReport(const std::string& sql);
 
@@ -50,4 +57,11 @@ public:
 
     duckdb::Connection& getConnection();
     size_t getProcsSize() const { return procsData.getSize(); }
+
+    template<typename Func>
+    auto withConnection(Func&& func) {
+        std::lock_guard<std::mutex> lock(dbMtx);
+        checkDailyRotation();
+        return func(con);
+    }
 };

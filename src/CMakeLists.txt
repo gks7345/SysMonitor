@@ -5,7 +5,7 @@
 # 이 프로젝트의 실행 파일에 소스를 추가합니다.
 add_executable (SysMonitor "SysMonitor.cpp" "collectors/SystemCollector.cpp" "collectors/CpuCollector.cpp" "collectors/MemCollector.cpp" "collectors/NetCollector.cpp" "collectors/DiskCollector.cpp"
 							  "collectors/ProcessCollector.cpp" "collectors/ETWNetwork.cpp" 
-							 "datastore/DataStore.cpp"  )
+							 "datastore/DataStore.cpp"   "analysis/SessionReport.cpp" "collectors/TargetCollector.cpp" "datastore/SummaryStore.cpp")
 target_include_directories(SysMonitor PRIVATE "../include")
 
 target_compile_definitions(SysMonitor PRIVATE
@@ -18,6 +18,8 @@ if(MSVC)
     target_link_options(SysMonitor PRIVATE
         "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
     )
+    # 소스 인코딩을 UTF-8로 강제 (BOM 유무와 무관하게 안전)
+    target_compile_options(SysMonitor PRIVATE /utf-8)
 endif()
 
 target_link_libraries(SysMonitor PRIVATE    

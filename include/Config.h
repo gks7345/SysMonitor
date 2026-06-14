@@ -1,20 +1,21 @@
-// SysMonitor.h ¶Ç´Â º°µµ Config.h
+ï»¿// SysMonitor.h ë˜ëŠ” ë³„ë„ Config.h
 #pragma once
 
 namespace Config {
-    // RingBuffer ¿ë·® (ÃÊ ´ÜÀ§ = º¸°ü ½Ã°£)
-    constexpr size_t PROC_BUFFER_CAPACITY = 120;  // 120ÃÊ
-    constexpr size_t SYS_BUFFER_CAPACITY = 120;  // 120ÃÊ
+    // RingBuffer ìš©ëŸ‰ (ì´ˆ ë‹¨ìœ„ = ë³´ê´€ ì‹œê°„)
+    constexpr size_t PROC_BUFFER_CAPACITY = 120;  // 120ì´ˆ
+    constexpr size_t SYS_BUFFER_CAPACITY = 120;  // 120ì´ˆ
 
-    // flush ÁÖ±â (tick ´ÜÀ§ = ÃÊ)
-    constexpr int FLUSH_INTERVAL_TICKS = 60;      // 60ÃÊ
+    // flush ì£¼ê¸° (tick ë‹¨ìœ„ = ì´ˆ)
+    constexpr int FLUSH_INTERVAL_TICKS = 60;      // 60ì´ˆ
 
-    // ÄÜ¼Ö Ãâ·Â Æø
+    // ì½˜ì†” ì¶œë ¥ í­
     constexpr int CONSOLE_WIDTH = 80;
 
-    // ÇÁ·Î¼¼½º »óÀ§ N°³
+    // í”„ë¡œì„¸ìŠ¤ ìƒìœ„ Nê°œ
     constexpr int DEFAULT_TOP_N = 10;
 
-    // ¼öÁý ÁÖ±â
-    constexpr int SLOW_COLLECT_INTERVAL = 2;      // 2ÃÊ¸¶´Ù collectSlow
+    // ìˆ˜ì§‘ ì£¼ê¸°
+    constexpr int SLOW_COLLECT_INTERVAL = 2;      // 2ì´ˆë§ˆë‹¤ collectSlow
+    constexpr int MIDDLE_COLLECT_INTERVAL = 1;  // ìˆ˜ì§‘ ì£¼ê¸° (ì´ˆ)
 }
