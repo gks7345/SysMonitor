@@ -10,6 +10,7 @@ class DataStore {
 private:
     RingBuffer<SnapshotProcData> procsData;
     RingBuffer<SnapshotSysData>  sysData;
+    RingBuffer<SnapshotTargetData>  targetData;
 
 
     static std::string makeDailyDbPath();
@@ -20,6 +21,7 @@ private:
 
     std::mutex procMtx;
     std::mutex sysMtx;
+    std::mutex targetMtx;
     std::mutex dbMtx;
 
     void initDB();
@@ -34,14 +36,19 @@ private:
     static double safeDouble(double v);
 
 public:
-    DataStore(size_t procCap = 120, size_t sysCap = 120);
+    DataStore(size_t procCap = 120, size_t sysCap = 120, size_t targetCap = 120);
     ~DataStore() = default;
 
     void pushProcsData(const SnapshotProcData& data);
     void pushSysData(const SnapshotSysData& data);
+    void pushTargetData(const SnapshotTargetData& data);
+
 
     void flushProcsToDB();
     void flushSysToDB();
+    void flushTargetToDB();
+
+    std::string getDbPath() const { return currentDbPath; }
 
     std::string queryReport(const std::string& sql);
 

@@ -11,6 +11,9 @@
 #include "Config.h"
 #include "collectors/SystemCollector.h"
 #include "collectors/ProcessCollector.h"
+#include "collectors/TargetCollector.h"
 #include "datastore/DataStore.h"
+#include "datastore/SummaryStore.h"
+#include "analysis/SessionReport.h"
 
 

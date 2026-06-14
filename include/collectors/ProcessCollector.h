@@ -44,7 +44,7 @@ struct ProcEntry {
 // -------------------------------------------------------
 class ProcList {
 public:
-    void setProcID(uint32_t v) { pid = v; }
+    void setProcID(DWORD v) { pid = v; }
     void setProcName(std::string v) { name = v; }
     void setProcCpuUsage(double v) { cpu = v; }
     void setProcMemoryMB(double v) { memMB = v; }
@@ -54,7 +54,7 @@ public:
     void setNetSentMbps(double v) { netSentMbps = v; }
     void setNetRecvMbps(double v) { netRecvMbps = v; }
 
-    uint32_t    getProcID() const { return pid; }
+    DWORD    getProcID() const { return pid; }
     std::string getProcName() const { return name; }
     double      getProcCpuUsage() const { return cpu; }
     double      getProcMemoryMB() const { return memMB; }
@@ -65,7 +65,7 @@ public:
     double      getNetRecvMbps() const { return netRecvMbps; }
 
 private:
-    uint32_t    pid = 0;
+    DWORD    pid = 0;
     std::string name;
     double      cpu = 0.0;  // %
     double      memMB = 0.0;  // Working Set - Private (MB)
@@ -118,6 +118,9 @@ private:
 
     // ----- 수집 시각 -----
     std::chrono::steady_clock::time_point lastTime;  // ETW NET용
+
+    unsigned int cores = 1;
+
     // --- 헬퍼 ---
     // Counter 초기화
     void initInfo(PDH_HQUERY& query);
@@ -147,6 +150,8 @@ public:
     void sortProc();
 
     void printToConsole() const;
+
+    ETWNetwork& getEtwNet() { return etwNet; }
 
     SnapshotProcData makeSnapshot();
 
