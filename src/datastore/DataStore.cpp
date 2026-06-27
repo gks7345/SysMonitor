@@ -39,8 +39,9 @@ void DataStore::checkDailyRotation() {
     if (newPath == currentDbPath) return;
 
     // 날짜 바뀌면 새 파일로 교체
-    flushProcsToDB();
-    flushSysToDB();
+    flushProcsToDBInternal();
+    flushSysToDBInternal();
+    flushTargetToDBInternal();
 
     // 새 DB 연결
     db = duckdb::DuckDB(newPath);
@@ -185,6 +186,11 @@ double DataStore::safeDouble(double v) {
 // SnapShotProcData.procs는 vector<SnapShotProc>이므로
 // 하나의 스냅샷에서 여러 행 INSERT
 void DataStore::flushProcsToDB() {
+    std::lock_guard<std::mutex> lock(dbMtx);
+    flushProcsToDBInternal();
+}
+
+void DataStore::flushProcsToDBInternal() {
     spdlog::info("flush start ringbuffer size={}", procsData.getSize());
     std::vector<SnapshotProcData> items;
     {
@@ -195,7 +201,6 @@ void DataStore::flushProcsToDB() {
 
     if (items.empty()) return;
 
-    std::lock_guard<std::mutex> lock(dbMtx);
     duckdb::Appender appender(con, "proc_snapshot");
 
     int rowCount = 0;
@@ -238,7 +243,11 @@ void DataStore::flushProcsToDB() {
 
 // SnapShotSysData → DuckDB
 void DataStore::flushSysToDB() {
+    std::lock_guard<std::mutex> lock(dbMtx);
+    flushSysToDBInternal();
+}
 
+void DataStore::flushSysToDBInternal() {
     std::vector<SnapshotSysData> items;
     {
         std::lock_guard<std::mutex> lock(sysMtx);
@@ -246,7 +255,6 @@ void DataStore::flushSysToDB() {
     }
     if (items.empty()) return;
 
-    std::lock_guard<std::mutex> lock(dbMtx);
     duckdb::Appender appender(con, "sys_snapshot");
     try {
         for (const auto& s : items) {
@@ -292,6 +300,11 @@ void DataStore::flushSysToDB() {
 }
 
 void DataStore::flushTargetToDB() {
+    std::lock_guard<std::mutex> lock(dbMtx);
+    flushTargetToDBInternal();
+}
+
+void DataStore::flushTargetToDBInternal() {
     std::vector<SnapshotTargetData> items;
     {
         std::lock_guard<std::mutex> lock(targetMtx);
@@ -299,7 +312,6 @@ void DataStore::flushTargetToDB() {
     }
     if (items.empty()) return;
 
-    std::lock_guard<std::mutex> dbLock(dbMtx);
     try {
         duckdb::Appender mainApp(con, "target_snapshot");
         duckdb::Appender childApp(con, "target_child_snapshot");
@@ -394,7 +406,6 @@ void DataStore::flushTargetToDB() {
         spdlog::error("flushTargetToDB exception: {}", e.what());
     }
 }
-
 
 std::string DataStore::queryReport(const std::string& sql) {
     std::lock_guard<std::mutex> lock(dbMtx);

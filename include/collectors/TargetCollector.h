@@ -42,7 +42,13 @@ struct PdhInstanceInfo {
 // -------------------------------------------------------
 struct ProcessCounters {
 	DWORD pid = 0;
-	std::string name;	// PDH 인스턴스명 (예: chrome#N)
+	std::string name;	// PDH 인스턴스명
+	bool         isChild = false;
+
+	// 메인은 공유 query 사용
+	// 자식은 개별 childQuery 사용
+	PDH_HQUERY childQuery = nullptr;
+
 	PDH_HCOUNTER cpu = nullptr;
 	PDH_HCOUNTER mem = nullptr;
 	PDH_HCOUNTER privateMem = nullptr;
@@ -52,6 +58,11 @@ struct ProcessCounters {
 	PDH_HCOUNTER threads = nullptr;
 	PDH_HCOUNTER pageFault = nullptr;
 	PDH_HCOUNTER elapsed = nullptr;		// 메인 프로세스만
+
+	// 자식 전용 Win32 CPU delta 계산용
+	ULONGLONG prevKernelTime = 0;
+	ULONGLONG prevUserTime = 0;
+	ULONGLONG prevMeasureTime = 0; // 100ns 단위 시스템 시간
 };
 
 struct TargetEntry {
@@ -93,7 +104,7 @@ private:
 	std::vector<std::string> pendingDeactivated;
 
 	// 헬퍼
-	bool activateTarget(const std::string& name);	// 실행 중 감지 -> 수집 시작
+	PdhInstanceInfo activateTarget(const std::string& name);	// 실행 중 감지 -> 수집 시작
 	void deactivateTarget(const std::string& name);	// 종료 감지 -> 수집 중단
 
 	bool initProcessCounters(ProcessCounters& counters);
@@ -103,7 +114,7 @@ private:
 	SnapshotChildProcess collectChild(ProcessCounters& counters, double elapsedSec, const ConnectionMap& connMap);
 
 	ConnectionMap getAllConnectionsGroupedByPid();
-	std::vector<TargetNetConnection> loolookupConnections(const ConnectionMap& map, DWORD pid);
+	std::vector<TargetNetConnection> lookupConnections(const ConnectionMap& map, DWORD pid);
 
 	// 자식 프로세스 활성화
 	void syncChildren(TargetEntry& entry);
@@ -111,13 +122,15 @@ private:
 	void printRunning(const SnapshotTarget& s) const;
 	void printNotRunning(const std::string& name) const;
 
-	static PdhInstanceInfo findPdhInstance(const std::string& name, DWORD targetPid);
+	static PdhInstanceInfo findChildPdhInstance(const std::string& name, DWORD targetPid);
+	static PdhInstanceInfo findMainPdhInstance(const std::string& name);
 	static std::vector<DWORD> getChildPids(DWORD pid);
 	static std::string getExePath(DWORD pid);
 	static std::string getProcessNameFromPid(DWORD pid);
 	static double getPdhDouble(PDH_HCOUNTER counter);
 	static std::string addrToString(DWORD ip, WORD port);
 	static std::string tcpStateToString(DWORD state);
+	static ULONGLONG filetimeToULL(const FILETIME& ft);
 
 public:
 	explicit TargetCollector(ETWNetwork& sharedEtwNet);

@@ -35,6 +35,10 @@ private:
 
     static double safeDouble(double v);
 
+    void checkDailyRotation();
+    void flushProcsToDBInternal();
+    void flushSysToDBInternal();
+    void flushTargetToDBInternal();
 public:
     DataStore(size_t procCap = 120, size_t sysCap = 120, size_t targetCap = 120);
     ~DataStore() = default;
@@ -53,7 +57,7 @@ public:
     std::string queryReport(const std::string& sql);
 
 
-    void checkDailyRotation();
+
 
     duckdb::Connection& getConnection();
     size_t getProcsSize() const { return procsData.getSize(); }

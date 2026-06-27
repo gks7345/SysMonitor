@@ -57,8 +57,8 @@ void SummaryStore::initDB() {
             peakMemoryMB     DOUBLE,
             avgNetMbps       DOUBLE,
             peakNetMbps      DOUBLE,
-            peakThreadCount  INTEGER,
-            peakHandleCount  INTEGER,
+            peakThreadCount  BIGINT,
+            peakHandleCount  BIGINT,
             totalRuntime      DOUBLE,
             sampleCount      INTEGER,
             PRIMARY KEY (date, targetName)
@@ -83,7 +83,7 @@ double SummaryStore::safeStod(const std::string& s) {
 
 int SummaryStore::safeStoi(const std::string& s) {
     try { return std::stoi(s); }
-    catch (...) { return 0.0; }
+    catch (...) { return 0; }
 }
 
 uint32_t SummaryStore::safeStoul(const std::string& s) {
@@ -115,61 +115,39 @@ SessionTargetSummary SummaryStore::parseTargetRow(duckdb::DataChunk* chunk, size
 void SummaryStore::flushSysSummary(const SessionSysSummary& s) {
     std::lock_guard<std::mutex> lock(mtx);
 
-    auto r = con.Query(
-        "SELECT avgCpuTotal, peakCpuTotal, "
-        "       avgMemUsagePercent, peakMemUsagePercent, "
-        "       avgDiskKBs, peakDiskKBs, "
-        "       avgNetKbps, peakNetKbps, sampleCount "
-        "FROM system_summary WHERE date = '" + s.date + "'");
+    // analyzeSys()가 이미 오늘 전체를 집계한 값이므로
+    // INSERT OR REPLACE로 그대로 덮어쓰기
+    auto stmt = con.Prepare(
+        "INSERT OR REPLACE INTO system_summary VALUES ("
+        "?, "   // s.date
+        "?, "   // s.avgCpuTotal
+        "?, "   // s.peakCpuTotal
+        "?, "   // s.avgMemUsagePercent
+        "?, "   // s.peakMemUsagePercent
+        "?, "   // s.avgDiskKBs
+        "?, "   // s.peakDiskKBs
+        "?, "   // s.avgNetKbps
+        "?, "   // s.peakNetKbps
+        "?)");  // s.sampleCount
 
-    auto chunk = (r->HasError()) ? nullptr : r->Fetch();
-
-    if (!chunk || chunk->size() == 0) {
-        // 신규 삽입
-        con.Query(
-            "INSERT INTO system_summary VALUES ("
-            "'" + s.date + "', " +
-            std::to_string(s.avgCpuTotal) + ", " +
-            std::to_string(s.peakCpuTotal) + ", " +
-            std::to_string(s.avgMemUsagePercent) + ", " +
-            std::to_string(s.peakMemUsagePercent) + ", " +
-            std::to_string(s.avgDiskKBs) + ", " +
-            std::to_string(s.peakDiskKBs) + ", " +
-            std::to_string(s.avgNetKbps) + ", " +
-            std::to_string(s.peakNetKbps) + ", " +
-            std::to_string(s.sampleCount) + ")");
+    if (stmt->HasError()) {
+        spdlog::error("SummaryStore: flushSysSummaries prepare {}", stmt->GetError());
+        return;
     }
-    else {
-        // 기존 행 누적 — 이동 평균
-        double pa = safeStod(chunk->GetValue(0, 0).ToString());
-        double pk = safeStod(chunk->GetValue(1, 0).ToString());
-        double ma = safeStod(chunk->GetValue(2, 0).ToString());
-        double mk = safeStod(chunk->GetValue(3, 0).ToString());
-        double da = safeStod(chunk->GetValue(4, 0).ToString());
-        double dk = safeStod(chunk->GetValue(5, 0).ToString());
-        double na = safeStod(chunk->GetValue(6, 0).ToString());
-        double nk = safeStod(chunk->GetValue(7, 0).ToString());
-        int    n = safeStoi(chunk->GetValue(8, 0).ToString());
-        int    ns = s.sampleCount;
-        int    total = n + ns;
 
-        // 가중 평균
-        auto wavg = [&](double a, double b) {
-            return (a * n + b * ns) / total; };
-
-        con.Query(
-            "UPDATE system_summary SET "
-            "avgCpuTotal = " + std::to_string(wavg(pa, s.avgCpuTotal)) + ", "
-            "peakCpuTotal = " + std::to_string(std::max(pk, s.peakCpuTotal)) + ", "
-            "avgMemUsagePercent = " + std::to_string(wavg(ma, s.avgMemUsagePercent)) + ", "
-            "peakMemUsagePercent = " + std::to_string(std::max(mk, s.peakMemUsagePercent)) + ", "
-            "avgDiskKBs = " + std::to_string(wavg(da, s.avgDiskKBs)) + ", "
-            "peakDiskKBs = " + std::to_string(std::max(dk, s.peakDiskKBs)) + ", "
-            "avgNetKbps = " + std::to_string(wavg(na, s.avgNetKbps)) + ", "
-            "peakNetKbps = " + std::to_string(std::max(nk, s.peakNetKbps)) + ", "
-            "sampleCount = " + std::to_string(total) + " "
-            "WHERE date = '" + s.date + "'");
+    try {
+        auto r = stmt->Execute(s.date, s.avgCpuTotal, s.peakCpuTotal,
+            s.avgMemUsagePercent, s.peakMemUsagePercent, s.avgDiskKBs,
+            s.peakDiskKBs, s.avgNetKbps, s.peakNetKbps, s.sampleCount);
+        if (r->HasError())
+            spdlog::error("SummaryStore: flushSysSummary {}", r->GetError());
     }
+    catch (const std::exception& e) {
+        spdlog::error("SummaryStore: flushSysSummary exception: {}", e.what());
+    }
+
+
+
     spdlog::info("SummaryStore: system_summary save ({})", s.date);
     con.Query("CHECKPOINT");
     spdlog::info("SummaryStore: system_summary flush clear");
@@ -181,69 +159,35 @@ void SummaryStore::flushSysSummary(const SessionSysSummary& s) {
 void SummaryStore::flushProcSummaries(const std::vector<SessionProcSummary>& procs) {
     std::lock_guard<std::mutex> lock(mtx);
 
-    for (const auto& p : procs) {
-        auto stmt = con.Prepare(
-            "SELECT avgCpuUsage, peakCpuUsage, "
-            "       avgMemoryMB, peakMemoryMB, sampleCount "
-            "FROM proc_summary "
-            "WHERE date = '" + p.date + "' "
-            "  AND procName = ? ");
-        if (stmt->HasError()) {
-            spdlog::error("SummaryStore: flushProcSummaries prepare {}", stmt->GetError());
-            return;
-        }
+    // analyzeProcs()가 이미 오늘 전체를 집계한 값이므로
+        // INSERT OR REPLACE로 그대로 덮어쓰기
+    auto stmt = con.Prepare(
+        "INSERT OR REPLACE INTO proc_summary VALUES ("
+        "?, "
+        "?, "   // procName
+        "?, "   // p.avgCpuUsage
+        "?, "   // p.peakCpuUsage
+        "?, "   // p.avgMemoryMB
+        "?, "   // p.peakMemoryMB
+        "?)");  // p.sampleCount
 
-        auto r = stmt->Execute(p.procName);
-        auto chunk = (r->HasError()) ? nullptr : r->Fetch();
-
-        if (!chunk || chunk->size() == 0) {
-            auto stmt = con.Prepare(
-                "INSERT INTO proc_summary VALUES ("
-                "'" + p.date + "', "
-                " ?, " +
-                std::to_string(p.avgCpuUsage) + ", " +
-                std::to_string(p.peakCpuUsage) + ", " +
-                std::to_string(p.avgMemoryMB) + ", " +
-                std::to_string(p.peakMemoryMB) + ", " +
-                std::to_string(p.sampleCount) + ")");
-
-            if (stmt->HasError()) {
-                spdlog::error("SummaryStore: flushProcSummaries INSERT prepare {}", stmt->GetError());
-                return;
-            }
-            auto r = stmt->Execute(p.procName);
-
-        }
-        else {
-            double ca = safeStod(chunk->GetValue(0, 0).ToString());
-            double ck = safeStod(chunk->GetValue(1, 0).ToString());
-            double ma = safeStod(chunk->GetValue(2, 0).ToString());
-            double mk = safeStod(chunk->GetValue(3, 0).ToString());
-            int    n = safeStoi(chunk->GetValue(4, 0).ToString());
-            int    ns = p.sampleCount;
-            int    total = n + ns;
-
-            auto wavg = [&](double a, double b) {
-                return (a * n + b * ns) / total; };
-
-            auto stmt = con.Prepare(
-                "UPDATE proc_summary SET "
-                "avgCpuUsage = " + std::to_string(wavg(ca, p.avgCpuUsage)) + ", "
-                "peakCpuUsage = " + std::to_string(std::max(ck, p.peakCpuUsage)) + ", "
-                "avgMemoryMB = " + std::to_string(wavg(ma, p.avgMemoryMB)) + ", "
-                "peakMemoryMB = " + std::to_string(std::max(mk, p.peakMemoryMB)) + ", "
-                "sampleCount = " + std::to_string(total) + " "
-                "WHERE date = '" + p.date + "' "
-                "  AND procName = ? ");
-
-            if (stmt->HasError()) {
-                spdlog::error("SummaryStore: flushProcSummaries prepare {}", stmt->GetError());
-                return;
-            }
-
-            auto r = stmt->Execute(p.procName);
-        }
+    if (stmt->HasError()) {
+        spdlog::error("SummaryStore: flushProcSummaries prepare {}", stmt->GetError());
+        return;  // 한 프로세스 실패해도 나머지 계속 처리
     }
+
+    for (const auto& p : procs) {
+        try {
+            auto r = stmt->Execute(p.date, p.procName, p.avgCpuUsage, p.peakCpuUsage, p.avgMemoryMB, p.peakMemoryMB, p.sampleCount);
+            if (r->HasError())
+                spdlog::error("SummaryStore: flushProcSummaries execute {}", r->GetError());
+        }
+        catch (const std::exception& e) {
+            spdlog::error("SummaryStore: flushProcSummaries exception: {}", e.what());
+        }
+
+    }
+
     spdlog::info("SummaryStore: proc_summary save {}", procs.size());
     con.Query("CHECKPOINT");
     spdlog::info("SummaryStore: proc_summary flush clear");
@@ -255,89 +199,50 @@ void SummaryStore::flushProcSummaries(const std::vector<SessionProcSummary>& pro
 void SummaryStore::flushTargetSummaries(const std::vector<SessionTargetSummary>& targets) {
     std::lock_guard<std::mutex> lock(mtx);
 
+    auto stmt = con.Prepare(
+        "INSERT OR REPLACE INTO target_summary VALUES ("
+        "?, "    // t.date
+        "?, "    // t.targetName
+        "?, "    // t.exePath
+        "?, "    // t.avgCpuUsage
+        "?, "    // t.peakCpuUsage 
+        "?, "    // t.avgMemoryMB
+        "?, "    // t.peakMemoryMB
+        "?, "    // t.avgNetMbps
+        "?, "    // t.peakNetMbps
+        "?, "    // t.peakThreadCount
+        "?, "    // t.peakHandleCount
+        "?, "    // t.runTime
+        "?)");   // t.sampleCount
+    if (stmt->HasError()) {
+        spdlog::error("SummaryStore: flushTargetSummaries prepare {}", stmt->GetError());
+        return;
+    }
+
     for (const auto& t : targets) {
-        auto stmt = con.Prepare(
-            "SELECT avgCpuUsage, peakCpuUsage, "
-            "       avgMemoryMB, peakMemoryMB, "
-            "       avgNetMbps, peakNetMbps, "
-            "       peakThreadCount, peakHandleCount, "
-            "       totalRuntime, sampleCount "
-            "FROM target_summary "
-            "WHERE date = '" + t.date + "' "
-            "  AND targetName = ? ");
-        if (stmt->HasError()) {
-            spdlog::error("SummaryStore: flushTargetSummaries prepare {}", stmt->GetError());
-            return;
-        }
+        // SELECT/UPDATE/INSERT 분기 없이
+        // analyzeTargets()가 이미 오늘 전체를 집계한 값이므로
+        // 그대로 INSERT OR REPLACE로 덮어쓰기
+        std::string safePath = t.exePath;   // \를 DuckDB가 exePath를 std::string인데도 BLOB으로 오인
+        for (char& c : safePath)
+            if (c == '\\') c = '/';  // \ → /
 
-        auto r = stmt->Execute(t.targetName);
-        auto chunk = (r->HasError()) ? nullptr : r->Fetch();
-
-        if (!chunk || chunk->size() == 0) {
-            // 신규 삽입
-            auto stmt = con.Prepare(
-                "INSERT OR REPLACE INTO target_summary VALUES ("
-                "'" + t.date + "', "
-                "?, "
-                "?, " +
-                std::to_string(t.avgCpuUsage) + ", " +
-                std::to_string(t.peakCpuUsage) + ", " +
-                std::to_string(t.avgMemoryMB) + ", " +
-                std::to_string(t.peakMemoryMB) + ", " +
-                std::to_string(t.avgNetMbps) + ", " +
-                std::to_string(t.peakNetMbps) + ", " +
-                std::to_string(t.peakThreadCount) + ", " +
-                std::to_string(t.peakHandleCount) + ", " +
-                std::to_string(t.runTime) + ", " +
-                std::to_string(t.sampleCount) + ")");
-            if (stmt->HasError())
-            {
-                spdlog::error("SummaryStore: flushTargetSummaries prepare {}", stmt->GetError());
-                return;
+        try {
+            auto r = stmt->Execute(t.date, t.targetName,
+                std::string(safePath), t.avgCpuUsage,
+                t.peakCpuUsage, t.avgMemoryMB, t.peakMemoryMB,
+                t.avgNetMbps, t.peakNetMbps,
+                static_cast<int64_t>(t.peakThreadCount),
+                static_cast<int64_t>(t.peakHandleCount),
+                t.runTime, t.sampleCount);
+            if (r->HasError()) {
+                spdlog::error("SummaryStore: flushTargetSummaries execute {}", r->GetError());
             }
-            auto r = stmt->Execute(t.targetName, t.exePath);
         }
-        else {
-            // 같은 날짜
-            double ca = safeStod(chunk->GetValue(0, 0).ToString());
-            double ck = safeStod(chunk->GetValue(1, 0).ToString());
-            double ma = safeStod(chunk->GetValue(2, 0).ToString());
-            double mk = safeStod(chunk->GetValue(3, 0).ToString());
-            double na = safeStod(chunk->GetValue(4, 0).ToString());
-            double nk = safeStod(chunk->GetValue(5, 0).ToString());
-            uint32_t pt = safeStoul(chunk->GetValue(6, 0).ToString());
-            uint32_t ph = safeStoul(chunk->GetValue(7, 0).ToString());
-            double el = safeStod(chunk->GetValue(8, 0).ToString());
-            int    n = safeStoi(chunk->GetValue(9, 0).ToString());
-            int    ns = t.sampleCount;
-            int    total = n + ns;
-
-            auto wavg = [&](double a, double b) {
-                return (a * n + b * ns) / total; };
-
-            auto stmt = con.Prepare(
-                "UPDATE target_summary SET "
-                "exePath = , "
-                "avgCpuUsage = " + std::to_string(wavg(ca, t.avgCpuUsage)) + ", "
-                "peakCpuUsage = " + std::to_string(std::max(ck, t.peakCpuUsage)) + ", "
-                "avgMemoryMB = " + std::to_string(wavg(ma, t.avgMemoryMB)) + ", "
-                "peakMemoryMB = " + std::to_string(std::max(mk, t.peakMemoryMB)) + ", "
-                "avgNetMbps = " + std::to_string(wavg(na, t.avgNetMbps)) + ", "
-                "peakNetMbps = " + std::to_string(std::max(nk, t.peakNetMbps)) + ", "
-                "peakThreadCount = " + std::to_string(std::max(pt, t.peakThreadCount)) + ", "
-                "peakHandleCount = " + std::to_string(std::max(ph, t.peakHandleCount)) + ", "
-                "totalRuntime = " + std::to_string(std::max(el, t.runTime)) + ", "
-                "sampleCount = " + std::to_string(total) + " "
-                "WHERE date = '" + t.date + "' "
-                "  AND targetName = ? ");
-            if (stmt->HasError())
-            {
-                spdlog::error("SummaryStore: flushTargetSummaries prepare {}", stmt->GetError());
-                return;
-            }
-
-            auto r = stmt->Execute(t.exePath, t.targetName);
+        catch (const std::exception& e) {
+            spdlog::error("SummaryStore: flushTargetSummaries exception: {}", e.what());
         }
+
     }
     spdlog::info("SummaryStore: target_summary save {}", targets.size());
     con.Query("CHECKPOINT");

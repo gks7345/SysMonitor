@@ -21,16 +21,16 @@ double SessionReport::safeStod(const std::string& s) {
 
 int SessionReport::safeStoi(const std::string& s) {
     try { return std::stoi(s); }
-    catch (...) { return 0.0; }
+    catch (...) { return 0; }
 }
 
 // -------------------------------------------------------
 // 시스템 분석
 // -------------------------------------------------------
 SessionSysSummary SessionReport::analyzeSys() {
-    return dataStore.withConnection([](duckdb::Connection& con)->SessionSysSummary {
+    std::string date = todayStr();
+    return dataStore.withConnection([date](duckdb::Connection& con)->SessionSysSummary {
         SessionSysSummary result;
-        std::string date = todayStr();
 
         std::string sql = "SELECT"
             "   ROUND(AVG(cpuTotal),    2) AS avgCpu,"
@@ -42,12 +42,15 @@ SessionSysSummary SessionReport::analyzeSys() {
             "   ROUND(AVG(netSentKbps + netRecvKbps),  2) AS avgNet,"
             "   ROUND(MAX(netSentKbps + netRecvKbps),  2) AS peakNet,"
             "COUNT(*) AS samples "
-            "FROM sys_snapsho t"
-            "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) ";
+            "FROM sys_snapshot "
+            "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) ";
 
         auto r = con.Query(sql);
 
-        if (r->HasError()) return result;
+        if (r->HasError()) {
+            spdlog::error("SessionReport: analyzeSys error: {}", r->GetError());
+            return result;
+        }
         auto chunk = r->Fetch();
         if (!chunk || chunk->size() == 0) return result;
         result.date = date;
@@ -69,9 +72,9 @@ SessionSysSummary SessionReport::analyzeSys() {
 // 프로세스 분석
 // -------------------------------------------------------
 std::vector<SessionProcSummary> SessionReport::analyzeProcs(int topN) {
-    return dataStore.withConnection([topN](duckdb::Connection& con)-> std::vector<SessionProcSummary> {
+    std::string date = todayStr();
+    return dataStore.withConnection([date, topN](duckdb::Connection& con)-> std::vector<SessionProcSummary> {
         std::vector<SessionProcSummary> result;
-        std::string date = todayStr();
 
         std::string sql =
             "SELECT procName, "
@@ -81,14 +84,16 @@ std::vector<SessionProcSummary> SessionReport::analyzeProcs(int topN) {
             "  ROUND(MAX(procMemoryMB), 2) AS peakMem, "
             "  COUNT(*) AS samples "
             "FROM proc_snapshot "
-            "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+            "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
             "GROUP BY procName "
             "ORDER BY avgCpu DESC "
             "LIMIT " + std::to_string(topN);
 
         auto r = con.Query(sql);
-        if (r->HasError()) return result;
-
+        if (r->HasError()) {
+            spdlog::error("SessionReport: analyzeProcs error: {}", r->GetError());
+            return result;
+        }
         auto chunk = r->Fetch();
         while (chunk) {
             for (size_t i = 0; i < chunk->size(); ++i) {
@@ -113,9 +118,9 @@ std::vector<SessionProcSummary> SessionReport::analyzeProcs(int topN) {
 // 타겟 분석
 // -------------------------------------------------------
 std::vector<SessionTargetSummary> SessionReport::analyzeTargets() {
-    return dataStore.withConnection([](duckdb::Connection& con)-> std::vector<SessionTargetSummary> {
+    std::string date = todayStr();
+    return dataStore.withConnection([&](duckdb::Connection& con)-> std::vector<SessionTargetSummary> {
         std::vector<SessionTargetSummary> result;
-        std::string date = todayStr();
 
         auto r = con.Query(
             "SELECT "
@@ -130,13 +135,16 @@ std::vector<SessionTargetSummary> SessionReport::analyzeTargets() {
             "    MAX(totalThreadCount)            AS peakThread, "
             "    MAX(totalHandleCount)            AS peakHandle, "
             "    ROUND(COUNT(*) * " + std::to_string(Config::MIDDLE_COLLECT_INTERVAL) + ", 1) AS runTime, "
-            "    COUNT(*)                         AS samples"
+            "    COUNT(*)                         AS samples "
             "FROM target_snapshot "
-            "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+            "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
             "GROUP BY targetName"
         );
 
-        if (r->HasError()) return result;
+        if (r->HasError()) {
+            spdlog::error("SessionReport: analyzeTargets error: {}", r->GetError());
+            return result;
+        }
 
         auto chunk = r->Fetch();
         while (chunk) {
@@ -165,9 +173,9 @@ std::vector<SessionTargetSummary> SessionReport::analyzeTargets() {
 }
 
 SessionTargetSummary SessionReport::getSessionTargetSummaryOne(const std::string& name) {
-    return dataStore.withConnection([name](duckdb::Connection& con)-> SessionTargetSummary {
+    std::string date = todayStr();
+    return dataStore.withConnection([name, date](duckdb::Connection& con)-> SessionTargetSummary {
         SessionTargetSummary result;
-        std::string date = todayStr();
 
         auto stmt = con.Prepare(
             "SELECT "
@@ -184,7 +192,7 @@ SessionTargetSummary SessionReport::getSessionTargetSummaryOne(const std::string
             "    ROUND(COUNT(*) * " + std::to_string(Config::MIDDLE_COLLECT_INTERVAL) + ", 1) AS runTime, "
             "    COUNT(*)                         AS samples "
             "FROM target_snapshot "
-            "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+            "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
             "  AND targetName = ? "
             "GROUP BY targetName"
         );
@@ -213,10 +221,8 @@ SessionTargetSummary SessionReport::getSessionTargetSummaryOne(const std::string
         result.peakMemoryMB = safeStod(chunk->GetValue(5, 0).ToString());
         result.avgNetMbps = safeStod(chunk->GetValue(6, 0).ToString());
         result.peakNetMbps = safeStod(chunk->GetValue(7, 0).ToString());
-        result.peakThreadCount = static_cast<uint32_t>(
-            std::stoul(chunk->GetValue(8, 0).ToString()));
-        result.peakHandleCount = static_cast<uint32_t>(
-            std::stoul(chunk->GetValue(9, 0).ToString()));
+        result.peakThreadCount = static_cast<uint32_t>(std::stoul(chunk->GetValue(8, 0).ToString()));
+        result.peakHandleCount = static_cast<uint32_t>(std::stoul(chunk->GetValue(9, 0).ToString()));
         result.runTime = safeStod(chunk->GetValue(10, 0).ToString());
         result.sampleCount = safeStoi(chunk->GetValue(11, 0).ToString());
 
@@ -307,7 +313,7 @@ void SessionReport::printAnomalies() {
         auto r1 = con.Query(
             "SELECT procName, COUNT(*) AS cnt "
             "FROM proc_snapshot WHERE procCpuUsage > 90 "
-            "   AND CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+            "   AND CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
             "GROUP BY procName HAVING cnt >= 10 "
             "ORDER BY cnt DESC LIMIT 5");
         if (!r1->HasError()) {
@@ -332,7 +338,7 @@ void SessionReport::printAnomalies() {
             "  ROUND(MAX(procMemoryMB),1) AS e, "
             "  ROUND(MAX(procMemoryMB)-MIN(procMemoryMB),1) AS g "
             "FROM proc_snapshot "
-            "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+            "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
             "GROUP BY procName HAVING g > 500 "
             "ORDER BY g DESC LIMIT 5");
         if (!r2->HasError()) {
@@ -359,7 +365,7 @@ void SessionReport::printAnomalies() {
             auto r3 = con.Query(
                 "SELECT targetName, MAX(totalHandleCount) AS maxH "
                 "FROM target_snapshot "
-                "WHERE CAST(epoch_ms(timestamp / 1000) AS DATE) = CAST('" + date + "' AS DATE) "
+                "WHERE CAST(epoch_ms(CAST(timestamp / 1000 AS BIGINT)) AS DATE) = CAST('" + date + "' AS DATE) "
                 "GROUP BY targetName HAVING maxH > 5000 "
                 "ORDER BY maxH DESC");
             if (!r3->HasError()) {

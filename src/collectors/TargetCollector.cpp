@@ -89,10 +89,22 @@ void TargetCollector::updateLastSession(const std::string& name, const SessionTa
 // -------------------------------------------------------
 bool TargetCollector::initProcessCounters(ProcessCounters& counters) {
 	if (!query || counters.name.empty()) return false;
+	if (counters.isChild) {
+		if (PdhOpenQuery(nullptr, 0, &counters.childQuery) != ERROR_SUCCESS)
+			return false;
+	}
+
+	auto targetQuery = counters.isChild ? counters.childQuery : query;
+	// Process V2 인스턴스 이름 = "name:pid"
+	std::string instName = counters.name;
+	//spdlog::info("instName: {}", instName);
 
 	auto add = [&](const std::string& path, PDH_HCOUNTER& counter, bool required = false) -> bool {
-		std::string full = "\\Process(" + counters.name + ")\\" + path;
-		PDH_STATUS s = PdhAddEnglishCounterA(query, full.c_str(), 0, &counter);
+		std::string full = "\\Process V2(" + instName + ")\\" + path;
+		//spdlog::info("initProcessCounters: adding '{}'", full);
+		//PDH_STATUS s = PdhAddEnglishCounterA(query, full.c_str(), 0, &counter);
+		PDH_STATUS s = PdhAddCounterA(targetQuery, full.c_str(), 0, &counter);
+		//spdlog::info("initProcessCounters: '{}' status=0x{:X}", path, (unsigned)s);
 		if (s != ERROR_SUCCESS) {
 			if (required)
 			{
@@ -121,7 +133,7 @@ bool TargetCollector::initProcessCounters(ProcessCounters& counters) {
 	add("Elapsed Time", counters.elapsed);
 
 	// 기준점 수집
-	PdhCollectQueryData(query);
+	PdhCollectQueryData(targetQuery);
 
 	return true;
 }
@@ -130,6 +142,10 @@ bool TargetCollector::initProcessCounters(ProcessCounters& counters) {
 // PDH 카운터 해제
 // -------------------------------------------------------
 void TargetCollector::releaseProcessCounters(ProcessCounters& counters) {
+	if (counters.isChild && counters.childQuery) {
+		PdhCloseQuery(counters.childQuery);
+		counters.childQuery = nullptr;
+	}
 	auto remove = [](PDH_HCOUNTER& c) {
 		if (c) { PdhRemoveCounter(c); c = nullptr; }
 		};
@@ -148,6 +164,9 @@ void TargetCollector::releaseProcessCounters(ProcessCounters& counters) {
 // 자식 프로세스 수집
 // -------------------------------------------------------
 SnapshotChildProcess TargetCollector::collectChild(ProcessCounters& counters, double elapsedSec, const ConnectionMap& connMap) {
+	if (counters.isChild && counters.childQuery)
+		PdhCollectQueryData(counters.childQuery);
+
 	SnapshotChildProcess c;
 	c.pid = counters.pid;
 	c.processName = getProcessNameFromPid(counters.pid);
@@ -173,7 +192,7 @@ SnapshotChildProcess TargetCollector::collectChild(ProcessCounters& counters, do
 	NetMbps net = etwNet.getAndResetForTarget(counters.pid, elapsedSec);
 	c.netSentMbps = net.sentMbps;
 	c.netRecvMbps = net.recvMbps;
-	c.connections = loolookupConnections(connMap, counters.pid);
+	c.connections = lookupConnections(connMap, counters.pid);
 
 	return c;
 }
@@ -212,7 +231,7 @@ SnapshotTarget TargetCollector::collectTarget(TargetEntry& entry, double elapsed
 	NetMbps net = etwNet.getAndResetForTarget(entry.main.pid, elapsedSec);
 	s.netSentMbps = net.sentMbps;
 	s.netRecvMbps = net.recvMbps;
-	s.connections = loolookupConnections(connMap, entry.main.pid);
+	s.connections = lookupConnections(connMap, entry.main.pid);
 
 	// 자식 프로세스 수집
 	for (auto& child : entry.children)
@@ -224,36 +243,40 @@ SnapshotTarget TargetCollector::collectTarget(TargetEntry& entry, double elapsed
 // -------------------------------------------------------
 // 실행 감지 → 수집 시작
 // -------------------------------------------------------
-bool TargetCollector::activateTarget(const std::string& name) {
-	auto info = findPdhInstance(name, 0);
+PdhInstanceInfo TargetCollector::activateTarget(const std::string& name) {
+	auto info = findMainPdhInstance(name);
 	if (!info.isValid()) {
-		spdlog::warn("TargetCollector: '{}' No PDH instance ", name);
-		return false;
+		spdlog::info("TargetCollector: '{}' No Active ", name);
+		return {};
 	}
+
+	spdlog::info("activateTarget: '{}' findMain done PID={}", name, info.pid);
 
 	// 이미 active인지 확인
 	auto it = std::find_if(activeTargets.begin(), activeTargets.end(),
-		[&](const TargetEntry& e) { return e.targetName == info.instanceName; });
-	if (it != activeTargets.end()) return false;
+		[&](const TargetEntry& e) { return e.targetName == name; });
+	if (it != activeTargets.end()) return {};
 
 	TargetEntry entry;
 	entry.targetName = name;
 	entry.main.pid = info.pid;
 	entry.main.name = info.instanceName;
 
+	spdlog::info("activateTarget: '{}' before initProcessCounters", name);
+
 	if (entry.main.name.empty()) {
 		spdlog::warn("TargetCollector: '{}' PDH instance is empty", name);
-		return false;
+		return {};
 	}
 
 	if (!initProcessCounters(entry.main)) {
 		spdlog::warn("TargetCollector: '{}' counter init fail", name);
-		return false;
+		return {};
 	}
 
 	activeTargets.push_back(std::move(entry));
 	spdlog::info("TargetCollector: '{}' (PID={}) collect start", name, info.pid);
-	return true;
+	return info;
 }
 
 // -------------------------------------------------------
@@ -306,7 +329,7 @@ void TargetCollector::syncChildren(TargetEntry& entry) {
 
 
 		//std::string childName = getProcessNameFromPid(cpid);
-		auto info = findPdhInstance(entry.targetName, cpid);
+		auto info = findChildPdhInstance(entry.targetName, cpid);
 		if (!info.isValid()) continue;
 		if (info.pid != cpid) {
 			spdlog::warn("syncChildren: PID Disagreement {} != {}", info.pid, cpid);
@@ -315,9 +338,9 @@ void TargetCollector::syncChildren(TargetEntry& entry) {
 
 		ProcessCounters pc;
 		pc.pid = cpid;
-
 		pc.name = info.instanceName;
 		if (pc.name.empty()) continue;
+		pc.isChild = true;
 
 		if (initProcessCounters(pc)) {
 			entry.children.push_back(std::move(pc));
@@ -352,10 +375,9 @@ void TargetCollector::collect() {
 
 		if (!isActive) {
 			// 실행 중인지 확인
-			auto info = findPdhInstance(name, 0);
+			auto info = activateTarget(name);
 			if (info.isValid()) {
 				spdlog::info("TargetCollector: '{}' (PID={}) running detect", name, info.pid);
-				activateTarget(name);
 			}
 		}
 	}
@@ -400,89 +422,128 @@ void TargetCollector::collect() {
 }
 
 // -------------------------------------------------------
-// PID → PDH 인스턴스명
+// 메인 프로세스 PDH 인스턴스 탐색 — Process V2 적용
 // -------------------------------------------------------
-PdhInstanceInfo TargetCollector::findPdhInstance(const std::string& name, DWORD targetPid) {
-	// 와일드카드로 모든 인스턴스 PID 한 번에 조회
-	std::string path = "\\Process(" + name + "*)\\ID Process";
+PdhInstanceInfo TargetCollector::findMainPdhInstance(const std::string& name) {
+	// Win32로 PID 찾기
+	DWORD targetPid = 0;
+	{
+		HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if (snap == INVALID_HANDLE_VALUE) {
+			return {};
+		}
 
-	PDH_HQUERY   tq = nullptr;
+		PROCESSENTRY32 entry = {};
+		entry.dwSize = sizeof(entry);
+		if (Process32First(snap, &entry)) {
+			do {
+				std::string exeName = entry.szExeFile;
+				if (exeName.size() > 4 && exeName.substr(exeName.size() - 4) == ".exe")
+					exeName = exeName.substr(0, exeName.size() - 4);
+				if (exeName == name) {
+					targetPid = entry.th32ProcessID;
+					break;
+				}
+			} while (Process32Next(snap, &entry));
+		}
+		CloseHandle(snap);
+	}
+
+	if (targetPid == 0) return {};
+
+	// Process V2로 PID 검증
+	std::string instName = name + ":" + std::to_string(targetPid);
+	std::string path = "\\Process V2(" + instName + ")\\Process ID";
+	spdlog::info("findMainPdhInstance: path='{}'", path);  // ← 추가
+
+	PDH_HQUERY tq = nullptr;
 	PDH_HCOUNTER tc = nullptr;
 
-	if (PdhOpenQuery(nullptr, 0, &tq) != ERROR_SUCCESS)
-	{
+	PDH_STATUS openStatus = PdhOpenQuery(nullptr, 0, &tq);
+	spdlog::info("findMainPdhInstance: PdhOpenQuery status=0x{:X} tq={}", (unsigned)openStatus, (void*)tq);
+	if (openStatus != ERROR_SUCCESS) {
 		PdhCloseQuery(tq);
-		spdlog::error("PdhOpenQuery error");
+		spdlog::warn("findMainPdhInstance: PdhOpenQuery failed");
 		return {};
 	}
 
-	if (PdhAddEnglishCounterA(tq, path.c_str(), 0, &tc) != ERROR_SUCCESS) {
+	//PDH_STATUS s = PdhAddEnglishCounterA(tq, path.c_str(), 0, &tc);
+	PDH_STATUS s = PdhAddCounterA(tq, path.c_str(), 0, &tc);
+	if (s != ERROR_SUCCESS) {
 		PdhCloseQuery(tq);
-		spdlog::error("findChildPdhInstance: PdhAddEnglishCounterA failed path='{}'", path);
+		spdlog::warn("findMainPdhInstance: Process V2 counter add failed '{}' error 0x{:X}", instName, (unsigned)s);
 		return {};
 	}
 
 	PdhCollectQueryData(tq);
 
-	// 배열로 전체 인스턴스 조회
-	DWORD bufSize = 0, count = 0;
-	PdhGetFormattedCounterArray(tc, PDH_FMT_DOUBLE, &bufSize, &count, nullptr);
-
-	if (count == 0 || bufSize == 0) {
+	PDH_FMT_COUNTERVALUE val = {};
+	if (PdhGetFormattedCounterValue(tc, PDH_FMT_LONG, nullptr, &val) != ERROR_SUCCESS) {
 		PdhCloseQuery(tq);
 		return {};
 	}
 
-	std::vector<char> buf(bufSize);
-	auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM*>(buf.data());
+	DWORD pid = static_cast<DWORD>(val.longValue);
+	PdhCloseQuery(tq);
+
+	if (pid != targetPid) {
+		spdlog::warn("findMainPdhInstance: PID mismatch {} != {}", pid, targetPid);
+		return {};
+	}
 
 	PdhInstanceInfo result;
-	PDH_STATUS s = PdhGetFormattedCounterArray(tc, PDH_FMT_DOUBLE, &bufSize, &count, items);
+	result.instanceName = instName;		// "chrome:7500"
+	result.pid = pid;
+	return result;
+}
 
-	if (s != ERROR_SUCCESS)
-	{
+// -------------------------------------------------------
+// 자식 프로세스 PDH 인스턴스 탐색 — Process V2 적용
+// -------------------------------------------------------
+PdhInstanceInfo TargetCollector::findChildPdhInstance(const std::string& name, DWORD targetPid) {
+	// Process V2 인스턴스 이름 = "name:pid"
+	std::string instName = name + ":" + std::to_string(targetPid);
+	std::string path = "\\Process V2(" + instName + ")\\Process ID";
+
+	PDH_HQUERY tq = nullptr;
+	PDH_HCOUNTER tc = nullptr;
+
+	if (PdhOpenQuery(nullptr, 0, &tq) != ERROR_SUCCESS) {
 		PdhCloseQuery(tq);
 		return {};
 	}
 
-	int thread = 0;
-	for (DWORD i = 0; i < count; ++i) {
-		DWORD pdhPid = static_cast<DWORD>(items[i].FmtValue.doubleValue);
-
-		std::string szName = items[i].szName;  // "name#3" 등
-
-		// szName에 이미 #N이 붙어있는지 확인
-		bool hasIndex = (szName.size() > name.size() &&
-			szName.substr(0, name.size()) == name &&
-			szName[name.size()] == '#');
-
-		std::string instName;
-
-		if (hasIndex)
-			instName = szName;
-		else	// szName이 메인 프로세스가 아니고 #N이 없을 경우 #N 추가
-		{
-			if (szName != name) continue;		// name의 자식 프로세스인지 이름이 비슷한 다른 프로세스인지 검증
-			instName = (i == 0) ? name : name + "#" + std::to_string(thread);	// 메인 프로세스는 #N 안 붙음
-		}
-
-
-
-		//spdlog::info("findPdhInstance: '{}' PID={}",instName, pdhPid);
-
-		if (targetPid == 0 || pdhPid == targetPid) {
-			result.instanceName = instName;
-			result.pid = pdhPid;
-			PdhCloseQuery(tq);
-			return result;
-		}
-		thread++;
+	PDH_STATUS s = PdhAddCounterA(tq, path.c_str(), 0, &tc);
+	//PDH_STATUS s = PdhAddEnglishCounterA(tq, path.c_str(), 0, &tc);
+	if (s != ERROR_SUCCESS) {
+		PdhCloseQuery(tq);
+		spdlog::warn("findChildPdhInstance: Process V2 counter add failed '{}'", instName);
+		return {};
 	}
 
+	PdhCollectQueryData(tq);
+
+	PDH_FMT_COUNTERVALUE val = {};
+	if (PdhGetFormattedCounterValue(tc, PDH_FMT_LONG, nullptr, &val) != ERROR_SUCCESS) {
+		PdhCloseQuery(tq);
+		return {};
+	}
+
+	DWORD pid = static_cast<DWORD>(val.longValue);
 	PdhCloseQuery(tq);
-	spdlog::warn("findPdhInstance: '{}' (PID={}) search failed", name, targetPid);
-	return {};
+
+	if (pid != targetPid) {
+		spdlog::warn("findChildPdhInstance: PID mismatch {} != {}", pid, targetPid);
+		return {};
+	}
+
+	PdhInstanceInfo result;
+
+	result.instanceName = instName;
+	result.pid = pid;
+	return result;
 }
+
 // -------------------------------------------------------
 // 프로세스 이름 조회
 // -------------------------------------------------------
@@ -573,8 +634,6 @@ TargetCollector::ConnectionMap TargetCollector::getAllConnectionsGroupedByPid() 
 		if (GetExtendedUdpTable(table, &size, FALSE, AF_INET, UDP_TABLE_OWNER_PID, 0) == NO_ERROR) {
 			for (DWORD i = 0; i < table->dwNumEntries; ++i) {
 				auto& row = table->table[i];
-				// 0.0.0.0 LISTEN 제외
-				// (실제 통신이 없는 단순 바인딩)
 				TargetNetConnection conn;
 				conn.protocol = "UDP";
 				conn.localAddr = addrToString(row.dwLocalAddr, ntohs(static_cast<u_short>(row.dwLocalPort)));
@@ -588,7 +647,7 @@ TargetCollector::ConnectionMap TargetCollector::getAllConnectionsGroupedByPid() 
 }
 
 // PID 하나만 빼기
-std::vector< TargetNetConnection> TargetCollector::loolookupConnections(const TargetCollector::ConnectionMap& map, DWORD pid) {
+std::vector< TargetNetConnection> TargetCollector::lookupConnections(const TargetCollector::ConnectionMap& map, DWORD pid) {
 	auto it = map.find(pid);
 	if (it == map.end()) return {};
 	return it->second;

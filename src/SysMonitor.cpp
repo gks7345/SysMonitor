@@ -33,7 +33,6 @@ int main()
 
     while (keep_running) {
         auto loopStart = std::chrono::steady_clock::now();
-        dataStore.checkDailyRotation();
 
         //1초 주기 수집
         sc.collectMiddle();
@@ -51,12 +50,10 @@ int main()
         if (tick % Config::SLOW_COLLECT_INTERVAL == 0) {
             //2초 주기 수집
             sc.collectSlow();
-            //proc.collectSlow();
         }
 
         sc.printToConsole();
         printf("%s\n", std::string(Config::CONSOLE_WIDTH, '-').c_str());
-        //proc.aggregateToParents();
         proc.sortProc();
         proc.printToConsole();
 
